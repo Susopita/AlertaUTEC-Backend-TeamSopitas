@@ -1,0 +1,31 @@
+{
+  "name": "alertautec-backend-teamsopitas",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Susopita/AlertaUTEC-Backend-TeamSopitas.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Susopita/AlertaUTEC-Backend-TeamSopitas/issues"
+  },
+  "homepage": "https://github.com/Susopita/AlertaUTEC-Backend-TeamSopitas#readme",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.932.0",
+    "@aws-sdk/client-eventbridge": "^3.932.0",
+    "@aws-sdk/lib-dynamodb": "^3.932.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.158",
+    "@types/node": "^24.10.1"
+  }
+}

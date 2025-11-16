@@ -1,0 +1,29 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+
+# TypeScript build
+dist/
+build/
+.tsbuildinfo
+
+# Serverless
+.serverless/
+.serverless_plugins/
+
+# Environment variables
+.env
+.env.local
+.env.dev
+.env.test
+.env.prod
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/

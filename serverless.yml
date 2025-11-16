@@ -1,0 +1,53 @@
+service: alerta-utec-backend
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: dev
+  environment:
+    DB_NAME: DBUsuarios
+    EVENT_BUS_NAME: default
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+      Resource:
+        - arn:aws:dynamodb:us-east-1:*:table/DBUsuarios
+
+    - Effect: Allow
+      Action:
+        - events:PutEvents
+      Resource: "*"
+
+functions:
+  register:
+    handler: dist/lambdas/register.handler
+    events:
+      - httpApi:
+          path: /register
+          method: post
+
+  login:
+    handler: dist/lambdas/login.handler
+    events:
+      - httpApi:
+          path: /login
+          method: post
+
+resources:
+  Resources:
+    DBUsuarios:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DBUsuarios
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
