@@ -1,4 +1,4 @@
-org: cerealkiller3242
+org: susorg
 service: alerta-utec-backend
 
 plugins:
@@ -21,6 +21,7 @@ provider:
     JWT_SECRET: ${env:JWT_SECRET}
     JWT_EXPIRES_IN: ${env:JWT_EXPIRES_IN}
     INCIDENTS_TABLE: { Ref: IncidenciasTable }
+    DB_CONEXIONES: { Ref: DBConexiones }
 
 
   role: arn:aws:iam::187904908036:role/LabRole
@@ -53,47 +54,59 @@ functions:
           path: /login
           method: post
 
+  authenticate:
+    handler: src/lambdas/authenticate.handler
+    events:
+      - websocket:
+          route: authenticate
+
   connect:
-    handler: dist/lambdas/ws/connect.handler
+    handler: src/lambdas/ws/Connect.handler
     events:
       - websocket:
           route: $connect
 
   disconnect:
-    handler: dist/lambdas/ws/disconnect.handler
+    handler: src/lambdas/ws/Disconnect.handler
     events:
       - websocket:
           route: $disconnect
 
   default:
-    handler: dist/lambdas/ws/default.handler
+    handler: src/lambdas/ws/default.handler
     events:
       - websocket:
           route: $default
 
   listarIncidencias:
-    handler: dist/lambdas/ws/ListarIncidencias.handler
+    handler: src/lambdas/ws/ListarIncidencias.handler
     events:
       - websocket:
           route: listarIncidencias
 
   priorizarHorizontalmente:
-    handler: dist/lambdas/ws/PriorizarHorizontalmente.handler
+    handler: src/lambdas/ws/PriorizarHorizontalmente.handler
     events:
       - websocket:
           route: priorizarHorizontalmente
 
   priorizarVerticalmente:
-    handler: dist/lambdas/ws/PriorizarVerticalmente.handler
+    handler: src/lambdas/ws/PriorizarVerticalmente.handler
     events:
       - websocket:
           route: priorizarVerticalmente
 
   cerrarIncidente:
-    handler: dist/lambdas/ws/CerrarIncidente.handler
+    handler: src/lambdas/ws/CerrarIncidente.handler
     events:
       - websocket:
           route: cerrarIncidente
+  
+  resolverIncidente:
+    handler: src/lambdas/ws/ResolverIncidente.handler
+    events:
+      - websocket:
+          route: resolverIncidente
 
   filtrarIncidencias:
     handler: src/lambdas/ws/FiltrarIncidente.handler
@@ -148,7 +161,6 @@ resources:
     IncidenciasTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: IncidenciasTable
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
           - AttributeName: incidenciaId
@@ -156,3 +168,35 @@ resources:
         KeySchema:
           - AttributeName: incidenciaId
             KeyType: HASH
+
+    # ------------------------
+    # Tabla DynamoDB Conexiones
+    # ------------------------
+    DBConexiones:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          # Clave principal de la tabla (PK)
+          - AttributeName: connectionId
+            AttributeType: S
+          # Clave de ordenación (SK) y clave del GSI (GSI-PK)
+          - AttributeName: viewId
+            AttributeType: S
+            
+        KeySchema:
+          - AttributeName: connectionId
+            KeyType: HASH
+          - AttributeName: viewId
+            KeyType: RANGE # Hacemos que la clave de ordenación sea 'viewId'
+            
+        # El GSI "inverso" para buscar por vista
+        GlobalSecondaryIndexes:
+          - IndexName: view-index # Índice para buscar por vista
+            KeySchema:
+              - AttributeName: viewId
+                KeyType: HASH
+              - AttributeName: connectionId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: KEYS_ONLY # Solo necesitamos los IDs
