@@ -1,4 +1,4 @@
-org: tuorg
+org: cerealkiller3242
 service: alerta-utec-backend
 
 provider:
@@ -9,13 +9,13 @@ provider:
   memorySize: 1024
   timeout: 30
   iam:
-    role: arn:aws:iam::{iam}:role/LabRole
+    role: arn:aws:iam::516314868592:role/LabRole
 
   environment:
     INCIDENTS_TABLE: IncidenciasTable
     DB_NAME: DBUsuarios
     EVENT_BUS_NAME: default
-    JWT_SECRET: ${ssm:/alertautec/jwt-secret~true}
+    JWT_SECRET: ${ssm:/alertautec-jwt-secret~true}
     JWT_EXPIRES_IN: 1h
 
   iamRoleStatements:
