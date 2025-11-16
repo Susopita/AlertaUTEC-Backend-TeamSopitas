@@ -6,6 +6,7 @@ import * as jwt from "jsonwebtoken";
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
+	console.log('[IncidenteResuelto] Lambda invocada');
 	const connectionId = event.requestContext?.connectionId;
 	const domain = event.requestContext?.domainName;
 	const stage = event.requestContext?.stage;
@@ -17,6 +18,7 @@ export const handler = async (event: any) => {
 	try {
 		const tableName = process.env.INCIDENTS_TABLE;
 		if (!tableName) {
+			console.error('[IncidenteResuelto] Falta configuración: INCIDENTS_TABLE');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })
@@ -25,6 +27,7 @@ export const handler = async (event: any) => {
 		}
 
 		if (!event.body) {
+			console.warn('[IncidenteResuelto] Body vacío');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Body vacío" })
@@ -36,6 +39,7 @@ export const handler = async (event: any) => {
 		const { token } = body || {};
 		const id = body?.id ?? body?.incidenteId ?? body?.IncidenteId;
 		if (!token) {
+			console.warn('[IncidenteResuelto] Token no proporcionado');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Token no proporcionado" })
@@ -43,6 +47,7 @@ export const handler = async (event: any) => {
 			return { statusCode: 401 };
 		}
 		if (!id) {
+			console.warn('[IncidenteResuelto] Id de incidente requerido');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Id de incidente requerido" })
@@ -52,6 +57,7 @@ export const handler = async (event: any) => {
 
 		const jwtSecret = process.env.JWT_SECRET;
 		if (!jwtSecret) {
+			console.error('[IncidenteResuelto] Falta configuración: JWT_SECRET');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
@@ -63,6 +69,7 @@ export const handler = async (event: any) => {
 		try {
 			decoded = jwt.verify(token, jwtSecret);
 		} catch {
+			console.warn('[IncidenteResuelto] Token inválido');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Token inválido" })
@@ -72,6 +79,7 @@ export const handler = async (event: any) => {
 
 		const rol = decoded?.rol;
 		if (rol !== "autoridad") {
+			console.warn('[IncidenteResuelto] No autorizado: rol insuficiente');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "No autorizado: rol insuficiente" })

@@ -6,11 +6,13 @@ const db = new DynamoDBClient({});
 const TABLE_NAME = process.env.DB_CONEXIONES;
 
 export const handler = async (event: APIGatewayProxyEvent) => {
+    console.log('[Unsuscribe] Lambda invocada');
     const connectionId = event.requestContext.connectionId!;
     const body = JSON.parse(event.body || "{}");
     const viewToUnsubscribe = body.view; // ej: "view#incident:123"
 
     if (!viewToUnsubscribe || viewToUnsubscribe === "metadata") {
+        console.warn('[Unsuscribe] viewId inválido');
         return { statusCode: 400, body: "viewId inválido" };
     }
 
@@ -23,8 +25,10 @@ export const handler = async (event: APIGatewayProxyEvent) => {
                 viewId: { S: viewToUnsubscribe }
             }
         }));
+        console.log(`[Unsuscribe] Suscripción eliminada: ${connectionId} -> ${viewToUnsubscribe}`);
         return { statusCode: 200, body: "Suscripción eliminada" };
     } catch (err) {
+        console.error('[Unsuscribe] Falló la desuscripción:', err);
         return { statusCode: 500, body: "Falló la desuscripción" };
     }
 };

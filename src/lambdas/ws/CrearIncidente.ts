@@ -62,27 +62,33 @@ function normalizeUrgencia(v: any): "alto" | "medio" | "bajo" | null {
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   try {
+    console.log('[CrearIncidente] Lambda invocada');
     const user = getUser(event);
     if (!user?.userId) {
+      console.warn('[CrearIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
     if ((user.role ?? "") !== "estudiante") {
+      console.warn('[CrearIncidente] No autorizado: rol debe ser estudiante');
       return { statusCode: 403, body: JSON.stringify({ message: "No autorizado: rol debe ser estudiante" }) };
     }
 
     if (!event.body) {
+      console.warn('[CrearIncidente] Body vacío');
       return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
     }
     const body = JSON.parse(event.body);
 
     // validaciones básicas
     if (!body.descripcion || !body.categoria) {
+      console.warn('[CrearIncidente] Faltan campos obligatorios: descripcion o categoria');
       return { statusCode: 400, body: JSON.stringify({ message: "Faltan campos obligatorios: descripcion o categoria" }) };
     }
 
     // obtener/normalizar urgencia (compatibilidad con campos previos)
     const urg = normalizeUrgencia(body.urgencia || body.prioridad || body.prioridadNivel);
     if (!urg) {
+      console.warn("[CrearIncidente] Campo 'urgencia' inválido");
       return { statusCode: 400, body: JSON.stringify({ message: "Campo 'urgencia' inválido. Debe ser: alto, medio o bajo" }) };
     }
 
@@ -91,6 +97,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     if (body.IndexPrioridad !== undefined && body.IndexPrioridad !== null) {
       const v = Number(body.IndexPrioridad);
       if (!Number.isFinite(v) || v < 0 || !Number.isInteger(v)) {
+        console.warn('[CrearIncidente] IndexPrioridad debe ser entero >= 0');
         return { statusCode: 400, body: JSON.stringify({ message: "IndexPrioridad debe ser entero >= 0" }) };
       }
       IndexPrioridad = v;

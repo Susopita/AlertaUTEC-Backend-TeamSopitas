@@ -13,13 +13,15 @@ const ddb = DynamoDBDocumentClient.from(ddbClient);
  */
 export const handler = async (event: EventBridgeEvent<string, IncidenteResueltoEvent>) => {
     try {
-        console.log('Evento IncidenteResuelto recibido:', JSON.stringify(event, null, 2));
+        console.log('[onIncidenteResuelto] Lambda invocada');
+        console.log('[onIncidenteResuelto] Evento recibido:', JSON.stringify(event.detail));
 
         const { incidenciaId, resolucion, resueltoPor } = event.detail;
         const DB_CONEXIONES = process.env.DB_CONEXIONES!;
         const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 
         if (!WEBSOCKET_ENDPOINT) {
+            console.warn('[onIncidenteResuelto] WEBSOCKET_ENDPOINT no configurado');
             return { statusCode: 200, body: 'Sin endpoint WebSocket' };
         }
 
@@ -59,23 +61,26 @@ export const handler = async (event: EventBridgeEvent<string, IncidenteResueltoE
                         Data: Buffer.from(JSON.stringify(mensaje))
                     })
                 );
+                console.log(`[onIncidenteResuelto] Notificado a conexión: ${conn.connectionId}`);
             } catch (error: any) {
                 if (error.statusCode === 410) {
-                    console.log(`Conexión obsoleta: ${conn.connectionId}`);
+                    console.log(`[onIncidenteResuelto] Conexión obsoleta: ${conn.connectionId}`);
+                } else {
+                    console.error(`[onIncidenteResuelto] Error notificando a ${conn.connectionId}:`, error);
                 }
             }
         });
 
         await Promise.allSettled(promesas);
 
-        console.log(`Resolución notificada: ${incidenciaId} por ${resueltoPor}`);
+        console.log(`[onIncidenteResuelto] Resolución notificada: ${incidenciaId} por ${resueltoPor}`);
 
         return {
             statusCode: 200,
             body: JSON.stringify({ message: 'Evento procesado' })
         };
     } catch (error) {
-        console.error('Error procesando evento IncidenteResuelto:', error);
+        console.error('[onIncidenteResuelto] Error:', error);
         throw error;
     }
 };

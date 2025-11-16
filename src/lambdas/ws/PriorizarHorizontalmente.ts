@@ -7,6 +7,7 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
   try {
+    console.log('[PriorizarHorizontalmente] Lambda invocada');
     const connectionId = event.requestContext.connectionId;
     const domain = event.requestContext.domainName;
     const stage = event.requestContext.stage;
@@ -21,6 +22,7 @@ export const handler = async (event: any) => {
 
     // Validar campos requeridos
     if (!incidenciaId || !urgencia || !token) {
+      console.warn('[PriorizarHorizontalmente] Faltan campos: incidenciaId, urgencia, token');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Faltan campos: incidenciaId, urgencia, token" })
@@ -31,6 +33,7 @@ export const handler = async (event: any) => {
     // Validar valores de urgencia
     const urgenciasValidas = ["bajo", "medio", "alto"];
     if (!urgenciasValidas.includes(urgencia.toLowerCase())) {
+      console.warn('[PriorizarHorizontalmente] Urgencia inválida:', urgencia);
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Urgencia debe ser: bajo, medio o alto" })
@@ -41,6 +44,7 @@ export const handler = async (event: any) => {
     // Verificar JWT
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
+      console.error('[PriorizarHorizontalmente] Falta configuración: JWT_SECRET');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
@@ -52,6 +56,7 @@ export const handler = async (event: any) => {
     try {
       decoded = jwt.verify(token, jwtSecret);
     } catch (err) {
+      console.warn('[PriorizarHorizontalmente] Token inválido');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Token inválido" })
@@ -61,6 +66,7 @@ export const handler = async (event: any) => {
 
     // Verificar que el usuario sea admin
     if (decoded.rol !== "admin") {
+      console.warn('[PriorizarHorizontalmente] Solo administradores pueden priorizar incidencias');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Solo administradores pueden priorizar incidencias" })
@@ -71,6 +77,7 @@ export const handler = async (event: any) => {
     // Actualizar urgencia en DynamoDB
     const tableName = process.env.INCIDENTS_TABLE;
     if (!tableName) {
+      console.error('[PriorizarHorizontalmente] Falta configuración: INCIDENTS_TABLE');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })

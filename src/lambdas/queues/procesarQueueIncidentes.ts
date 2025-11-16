@@ -12,13 +12,13 @@ const ddb = DynamoDBDocumentClient.from(ddbClient);
  * Notifica a todas las conexiones WebSocket activas en la misma vista
  */
 export const handler = async (event: SQSEvent) => {
-    console.log(`Procesando ${event.Records.length} mensajes de Queue Incidentes`);
+    console.log(`[QueueIncidentes] Lambda invocada. Procesando ${event.Records.length} mensajes de la cola de incidentes`);
 
     const DB_CONEXIONES = process.env.DB_CONEXIONES!;
     const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 
     if (!WEBSOCKET_ENDPOINT) {
-        console.warn('WEBSOCKET_ENDPOINT no configurado');
+        console.warn('[QueueIncidentes] WEBSOCKET_ENDPOINT no configurado');
         return;
     }
 
@@ -31,13 +31,13 @@ export const handler = async (event: SQSEvent) => {
         try {
             await procesarMensaje(record, ddb, apiGateway, DB_CONEXIONES);
         } catch (error) {
-            console.error('Error procesando mensaje:', error);
+            console.error('[QueueIncidentes] Error procesando mensaje:', error);
             // Si falla, SQS lo reintentará
             throw error;
         }
     }
 
-    console.log('Batch procesado exitosamente');
+    console.log('[QueueIncidentes] Batch procesado exitosamente');
 };
 
 async function procesarMensaje(
@@ -51,7 +51,7 @@ async function procesarMensaje(
     const detailType = eventBridgeEvent['detail-type'];
     const detail = eventBridgeEvent.detail;
 
-    console.log(`Procesando evento: ${detailType}`, detail);
+    console.log(`[QueueIncidentes] Procesando evento: ${detailType}`, detail);
 
     // Mapear el tipo de evento a la acción WebSocket
     const accionMap: Record<string, string> = {
@@ -65,7 +65,7 @@ async function procesarMensaje(
 
     const accion = accionMap[detailType];
     if (!accion) {
-        console.warn(`Tipo de evento desconocido: ${detailType}`);
+        console.warn(`[QueueIncidentes] Tipo de evento desconocido: ${detailType}`);
         return;
     }
 
@@ -82,7 +82,7 @@ async function procesarMensaje(
     );
 
     const conexiones = result.Items || [];
-    console.log(`Notificando a ${conexiones.length} conexiones activas`);
+    console.log(`[QueueIncidentes] Notificando a ${conexiones.length} conexiones activas`);
 
     // Preparar mensaje para WebSocket
     const mensaje = {
@@ -100,17 +100,17 @@ async function procesarMensaje(
                     Data: Buffer.from(JSON.stringify(mensaje))
                 })
             );
-            console.log(`✓ Notificado: ${conn.connectionId}`);
+            console.log(`[QueueIncidentes] Notificado: ${conn.connectionId}`);
         } catch (error: any) {
             if (error.statusCode === 410) {
-                console.log(`✗ Conexión obsoleta: ${conn.connectionId}`);
+                console.log(`[QueueIncidentes] Conexión obsoleta: ${conn.connectionId}`);
                 // TODO: Eliminar conexión de la tabla
             } else {
-                console.error(`✗ Error notificando ${conn.connectionId}:`, error);
+                console.error(`[QueueIncidentes] Error notificando ${conn.connectionId}:`, error);
             }
         }
     });
 
     await Promise.allSettled(promesas);
-    console.log(`Evento ${detailType} procesado y notificado`);
+    console.log(`[QueueIncidentes] Evento ${detailType} procesado y notificado`);
 }

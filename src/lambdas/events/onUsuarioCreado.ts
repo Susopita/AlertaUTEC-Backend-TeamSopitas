@@ -8,36 +8,21 @@ import { UsuarioCreadoEvent } from "../../events/schemas.js";
  */
 export const handler = async (event: EventBridgeEvent<string, UsuarioCreadoEvent>) => {
     try {
-        console.log('Evento UsuarioCreado recibido:', JSON.stringify(event, null, 2));
+        console.log('[onUsuarioCreado] Lambda invocada');
+        console.log('[onUsuarioCreado] Evento recibido:', JSON.stringify(event.detail));
 
         const { userId, nombre, correo, rol, area } = event.detail;
 
-        // TODO: Aquí puedes agregar lógica adicional:
-        // - Enviar email de bienvenida con SES
-        // - Crear perfil en otra tabla
-        // - Notificar a administradores
-        // - Registrar en sistema de analytics
+        // ...existing code...
+        console.log(`[onUsuarioCreado] Usuario creado: ${nombre} (${correo}) - Rol: ${rol}, Área: ${area}`);
 
-        console.log(`Usuario creado: ${nombre} (${correo}) - Rol: ${rol}, Área: ${area}`);
-
-        // Ejemplo: Si fuera a enviar email
-        // await sesClient.send(new SendEmailCommand({
-        //     Source: process.env.FROM_EMAIL!,
-        //     Destination: { ToAddresses: [correo] },
-        //     Message: {
-        //         Subject: { Data: 'Bienvenido a AlertaUTEC' },
-        //         Body: {
-        //             Text: { Data: `Hola ${nombre}, tu cuenta ha sido creada exitosamente.` }
-        //         }
-        //     }
-        // }));
-
+        // ...existing code...
         return {
             statusCode: 200,
             body: JSON.stringify({ message: 'Evento procesado correctamente' })
         };
     } catch (error) {
-        console.error('Error procesando evento UsuarioCreado:', error);
+        console.error('[onUsuarioCreado] Error:', error);
         throw error; // EventBridge reintentará si falla
     }
 };

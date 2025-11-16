@@ -30,6 +30,7 @@ const ddb = DynamoDBDocumentClient.from(ddbClient);
 const apigw = new ApiGatewayManagementApiClient({ endpoint: WS_API_ENDPOINT });
 
 export const handler = async (event: SQSEvent) => {
+  console.log('[NotificarIncidente] Lambda invocada');
   for (const record of event.Records) {
     try {
       const body = JSON.parse(record.body);
@@ -38,7 +39,7 @@ export const handler = async (event: SQSEvent) => {
       const payload = body.payload;
 
       if (!subscriptionKey) {
-        console.warn("notifyIncidents: missing subscriptionKey", body);
+        console.warn('[NotificarIncidente] subscriptionKey faltante', body);
         continue;
       }
 
@@ -52,6 +53,7 @@ export const handler = async (event: SQSEvent) => {
       }));
 
       const connections = q.Items || [];
+      console.log(`[NotificarIncidente] Notificando a ${connections.length} conexiones para ${subscriptionKey}`);
 
       for (const conn of connections) {
         const connId = (conn as any).connectionId;
@@ -60,21 +62,23 @@ export const handler = async (event: SQSEvent) => {
             ConnectionId: connId,
             Data: new TextEncoder().encode(JSON.stringify({ type: eventType, data: payload }))
           }));
+          console.log(`[NotificarIncidente] Notificado: ${connId}`);
         } catch (err: any) {
           const status = err?.$metadata?.httpStatusCode;
-          console.warn(`postToConnection failed for ${connId} status=${status}`, err?.message);
+          console.warn(`[NotificarIncidente] Falló notificación para ${connId} status=${status}`, err?.message);
           // if 410 Gone, delete connection record to prune stale conns
           if (status === 410 || status === 403) {
             try {
               await ddb.send(new DeleteCommand({ TableName: WS_TABLE, Key: { connectionId: connId } }));
+              console.log(`[NotificarIncidente] Conexión obsoleta eliminada: ${connId}`);
             } catch (delErr) {
-              console.error("failed to delete stale connection", connId, delErr);
+              console.error('[NotificarIncidente] Error eliminando conexión obsoleta', connId, delErr);
             }
           }
         }
       }
     } catch (e) {
-      console.error("notifyIncidents worker record error:", e);
+      console.error('[NotificarIncidente] Error procesando record:', e);
       // SQS lambda event will retry / send to DLQ if configured
     }
   }

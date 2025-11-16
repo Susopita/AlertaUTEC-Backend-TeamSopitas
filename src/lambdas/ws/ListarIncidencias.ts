@@ -9,7 +9,9 @@ import * as jwt from "jsonwebtoken";
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
+
   try {
+    console.log('[ListarIncidencias] Lambda invocada');
     // Datos del WebSocket
     const connectionId = event.requestContext.connectionId;
     const domain = event.requestContext.domainName;
@@ -22,6 +24,7 @@ export const handler = async (event: any) => {
 
     const tableName = process.env.INCIDENTS_TABLE;
     if (!tableName) {
+      console.error('[ListarIncidencias] Falta configuración: INCIDENTS_TABLE');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })
@@ -32,6 +35,7 @@ export const handler = async (event: any) => {
     // Obtener token del query string o headers
     const token = event.queryStringParameters?.token;
     if (!token) {
+      console.warn('[ListarIncidencias] Token no proporcionado');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Token no proporcionado" })
@@ -42,6 +46,7 @@ export const handler = async (event: any) => {
     // Decodificar JWT
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
+      console.error('[ListarIncidencias] Falta configuración: JWT_SECRET');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
@@ -53,6 +58,7 @@ export const handler = async (event: any) => {
     try {
       decoded = jwt.verify(token, jwtSecret);
     } catch (err) {
+      console.warn('[ListarIncidencias] Token inválido');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Token inválido" })

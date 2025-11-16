@@ -13,14 +13,15 @@ const ddb = DynamoDBDocumentClient.from(ddbClient);
  */
 export const handler = async (event: EventBridgeEvent<string, IncidentePriorizadoEvent>) => {
     try {
-        console.log('Evento IncidentePriorizado recibido:', JSON.stringify(event, null, 2));
+        console.log('[onIncidentePriorizado] Lambda invocada');
+        console.log('[onIncidentePriorizado] Evento recibido:', JSON.stringify(event.detail));
 
         const { incidenciaId, tipoPriorizacion, nuevaPrioridad, priorizadoPor } = event.detail;
         const DB_CONEXIONES = process.env.DB_CONEXIONES!;
         const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 
         if (!WEBSOCKET_ENDPOINT) {
-            console.warn('WEBSOCKET_ENDPOINT no configurado');
+            console.warn('[onIncidentePriorizado] WEBSOCKET_ENDPOINT no configurado');
             return { statusCode: 200, body: 'Sin endpoint WebSocket' };
         }
 
@@ -61,23 +62,26 @@ export const handler = async (event: EventBridgeEvent<string, IncidentePriorizad
                         Data: Buffer.from(JSON.stringify(mensaje))
                     })
                 );
+                console.log(`[onIncidentePriorizado] Notificado a conexión: ${conn.connectionId}`);
             } catch (error: any) {
                 if (error.statusCode === 410) {
-                    console.log(`Conexión obsoleta: ${conn.connectionId}`);
+                    console.log(`[onIncidentePriorizado] Conexión obsoleta: ${conn.connectionId}`);
+                } else {
+                    console.error(`[onIncidentePriorizado] Error notificando a ${conn.connectionId}:`, error);
                 }
             }
         });
 
         await Promise.allSettled(promesas);
 
-        console.log(`Priorización notificada: ${incidenciaId} (${tipoPriorizacion}) -> ${nuevaPrioridad}`);
+        console.log(`[onIncidentePriorizado] Priorización notificada: ${incidenciaId} (${tipoPriorizacion}) -> ${nuevaPrioridad}`);
 
         return {
             statusCode: 200,
             body: JSON.stringify({ message: 'Evento procesado' })
         };
     } catch (error) {
-        console.error('Error procesando evento IncidentePriorizado:', error);
+        console.error('[onIncidentePriorizado] Error:', error);
         throw error;
     }
 };

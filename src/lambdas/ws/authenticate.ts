@@ -12,8 +12,10 @@ export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
 
+    console.log('[Authenticate] Lambda invocada');
     const connectionId = event.requestContext.connectionId;
     if (!connectionId) {
+        console.warn('[Authenticate] ID de conexión no encontrado');
         return { statusCode: 400, body: "ID de conexión no encontrado" };
     }
 
@@ -21,6 +23,7 @@ export const handler = async (
     const token = body.token; // El JWT que envió el cliente
 
     if (!token) {
+        console.warn('[Authenticate] Falta el token en el body');
         return { statusCode: 400, body: "Falta el 'token' en el body" };
     }
 
@@ -34,6 +37,7 @@ export const handler = async (
         const expiration = payload.exp; // El timestamp de expiración del token
 
         if (!userId || !roles || !expiration) {
+            console.warn('[Authenticate] Token inválido (faltan datos)');
             return { statusCode: 400, body: "Token inválido (faltan datos)" };
         }
 
@@ -53,6 +57,7 @@ export const handler = async (
                 ":exp": expiration // Guardamos el timestamp de expiración
             }
         }));
+        console.log(`[Authenticate] Usuario autenticado: ${userId}`);
 
         // 4. Avisar al cliente que la autenticación fue exitosa
         // (Esto es opcional, pero bueno para depurar)
@@ -66,6 +71,7 @@ export const handler = async (
 
     } catch (err) {
         // Si jwt.verify falla (token expirado, firma inválida), entra aquí
+        console.warn('[Authenticate] Token inválido o expirado');
         return { statusCode: 401, body: "Token inválido o expirado" };
     }
 };

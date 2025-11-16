@@ -55,23 +55,27 @@ function getUserFromEvent(event: any): JwtUser {
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   try {
+    console.log('[EliminarIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
-      console.error("Falta configuración: INCIDENTS_TABLE");
+      console.error('[EliminarIncidente] Falta configuración: INCIDENTS_TABLE');
       return { statusCode: 500, body: JSON.stringify({ message: "Error interno: configuración" }) };
     }
 
     const user = getUserFromEvent(event);
     if (!user.userId) {
+      console.warn('[EliminarIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
 
     if (!event.body) {
+      console.warn('[EliminarIncidente] Body vacío');
       return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
     }
 
     const body = JSON.parse(event.body);
     const incidenciaId = body.incidenciaId || body.incidentId || body.id;
     if (!incidenciaId) {
+      console.warn('[EliminarIncidente] Falta incidenciaId');
       return { statusCode: 400, body: JSON.stringify({ message: "Falta incidenciaId" }) };
     }
 
