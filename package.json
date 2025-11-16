@@ -31,6 +31,9 @@
     "@types/aws-lambda": "^8.10.158",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^24.10.1"
+    "@types/node": "^24.10.1",
+    "esbuild": "^0.25.12",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-esbuild": "^1.55.2"
   }
 }
