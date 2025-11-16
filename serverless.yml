@@ -1,12 +1,15 @@
+org: tuorg
 service: alerta-utec-backend
-
-frameworkVersion: "3"
 
 provider:
   name: aws
   runtime: nodejs20.x
   region: us-east-1
   stage: dev
+  memorySize: 1024
+  timeout: 30
+  iam:
+    role: arn:aws:iam::{iam}:role/LabRole
 
   environment:
     INCIDENTS_TABLE: IncidenciasTable
