@@ -7,21 +7,48 @@ provider:
   runtime: nodejs20.x
   region: us-east-1
   stage: dev
+
   environment:
+    INCIDENTS_TABLE: IncidenciasTable
     DB_NAME: DBUsuarios
     EVENT_BUS_NAME: default
+    JWT_SECRET: ${ssm:/alertautec/jwt-secret~true}
+    JWT_EXPIRES_IN: 1h
 
   iamRoleStatements:
     - Effect: Allow
       Action:
+        - execute-api:ManageConnections
+      Resource: 
+        - "arn:aws:execute-api:us-east-1:*:*/*/@connections/*"
+
+
+    # Permisos User DB
+    - Effect: Allow
+      Action:
         - dynamodb:PutItem
+        - dynamodb:Query
+        - dynamodb:Scan
       Resource:
         - arn:aws:dynamodb:us-east-1:*:table/DBUsuarios
+        - arn:aws:dynamodb:us-east-1:*:table/DBUsuarios/index/*
 
+    # Permisos tabla Incidencias
+    - Effect: Allow
+      Action:
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+      Resource:
+        - arn:aws:dynamodb:us-east-1:*:table/IncidenciasTable
+
+    # Permisos EventBridge
     - Effect: Allow
       Action:
         - events:PutEvents
-      Resource: "*"
+      Resource:
+        - arn:aws:events:us-east-1:${aws:accountId}:event-bus/default
 
 functions:
   register:
@@ -38,8 +65,38 @@ functions:
           path: /login
           method: post
 
+  connect:
+    handler: dist/lambdas/ws/connect.handler
+    events:
+      - websocket:
+          route: $connect
+
+  disconnect:
+    handler: dist/lambdas/ws/disconnect.handler
+    events:
+      - websocket:
+          route: $disconnect
+
+  default:
+    handler: dist/lambdas/ws/default.handler
+    events:
+      - websocket:
+          route: $default
+
+  listarIncidencias:
+    handler: dist/lambdas/ws/ListarIncidencias.handler
+    events:
+      - websocket:
+          route: listarIncidencias
+
+
+
 resources:
   Resources:
+
+    # ------------------------
+    # Tabla DynamoDB Usuarios
+    # ------------------------
     DBUsuarios:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -48,6 +105,38 @@ resources:
         AttributeDefinitions:
           - AttributeName: userId
             AttributeType: S
+          - AttributeName: correo
+            AttributeType: S
+          - AttributeName: codigo
+            AttributeType: S
         KeySchema:
           - AttributeName: userId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: correo-index
+            KeySchema:
+              - AttributeName: correo
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: codigo-index
+            KeySchema:
+              - AttributeName: codigo
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    # ------------------------
+    # Tabla DynamoDB Incidencias
+    # ------------------------
+    IncidenciasTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: IncidenciasTable
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: incidenciaId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: incidenciaId
             KeyType: HASH
