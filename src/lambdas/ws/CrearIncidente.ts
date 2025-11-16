@@ -32,10 +32,15 @@ function getUser(event: APIGatewayProxyEvent): User | null {
         .toLowerCase()
     };
   }
+
   const header = event.headers?.Authorization || event.headers?.authorization;
   if (header && header.startsWith("Bearer ") && JWT_SECRET) {
+    // extraer token de forma segura y que TS entienda que es string
+    const parts = header.split(" ");
+    const token = parts.length > 1 ? parts[1] : undefined;
+    if (!token) return null;
+
     try {
-      const token = header.split(" ")[1];
       const payload = jwt.verify(token, JWT_SECRET) as any;
       return { userId: payload.sub || payload.userId, role: (payload.role || "").toLowerCase() };
     } catch {
@@ -107,9 +112,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
 
       // UpdateCommand typing for doc client — usar any para evitar TS estricto
-      // safe/workable
-        const counterResp: any = await ddb.send(new UpdateCommand(updateCounterParams as any));
-        const IndexPrioridad = counterResp?.Attributes?.last;
+      const counterResp: any = await ddb.send(new UpdateCommand(updateCounterParams as any));
+      IndexPrioridad = counterResp?.Attributes?.last;
       if (IndexPrioridad == null) {
         return { statusCode: 500, body: JSON.stringify({ message: "Error generando IndexPrioridad" }) };
       }

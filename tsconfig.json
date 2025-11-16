@@ -27,7 +27,7 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
 
-    // ⚠️ Importante: debe estar en false para evitar tus errores de imports
+    // Importante: debe estar en false para evitar tus errores de imports
     "verbatimModuleSyntax": false,
     "rootDir": "src",
     "outDir": "dist"
