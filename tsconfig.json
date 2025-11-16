@@ -28,6 +28,8 @@
     "exactOptionalPropertyTypes": true,
 
     // ⚠️ Importante: debe estar en false para evitar tus errores de imports
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "rootDir": "src",
+    "outDir": "dist"
   }
 }

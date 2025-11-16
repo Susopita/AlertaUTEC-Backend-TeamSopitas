@@ -1,65 +1,53 @@
+org: cerealkiller3242
 service: alerta-utec-backend
 
-frameworkVersion: "3"
+plugins:
+  - serverless-dotenv-plugin
 
 provider:
   name: aws
   runtime: nodejs20.x
   region: us-east-1
   stage: dev
+  memorySize: 1024
+  timeout: 30
+  iam:
+    role: arn:aws:iam::516314868592:role/LabRole
 
   environment:
-    INCIDENTS_TABLE: IncidenciasTable
-    DB_NAME: DBUsuarios
-    EVENT_BUS_NAME: default
-    JWT_SECRET: ${ssm:/alertautec/jwt-secret~true}
-    JWT_EXPIRES_IN: 1h
 
-  iamRoleStatements:
-    - Effect: Allow
-      Action:
-        - execute-api:ManageConnections
-      Resource: 
-        - "arn:aws:execute-api:us-east-1:*:*/*/@connections/*"
+    DB_NAME: { Ref: DBUsuarios }
+    EVENT_BUS_NAME: ${self:custom.miBusDeEventos}
+    JWT_SECRET: ${env:JWT_SECRET}
+    JWT_EXPIRES_IN: ${env:JWT_EXPIRES_IN}
+    INCIDENTS_TABLE: { Ref: IncidenciasTable }
 
 
-    # Permisos User DB
-    - Effect: Allow
-      Action:
-        - dynamodb:PutItem
-        - dynamodb:Query
-        - dynamodb:Scan
-      Resource:
-        - arn:aws:dynamodb:us-east-1:*:table/DBUsuarios
-        - arn:aws:dynamodb:us-east-1:*:table/DBUsuarios/index/*
+  role: arn:aws:iam::187904908036:role/LabRole
+  httpApi:
+    cors: true
 
-    # Permisos tabla Incidencias
-    - Effect: Allow
-      Action:
-        - dynamodb:Scan
-        - dynamodb:GetItem
-        - dynamodb:PutItem
-        - dynamodb:UpdateItem
-      Resource:
-        - arn:aws:dynamodb:us-east-1:*:table/IncidenciasTable
+custom:
+  # 2. Define el nombre aquí para poder reusarlo
+  miBusDeEventos: mi-foro-eventos-${self:provider.stage}
 
-    # Permisos EventBridge
-    - Effect: Allow
-      Action:
-        - events:PutEvents
-      Resource:
-        - arn:aws:events:us-east-1:${aws:accountId}:event-bus/default
+build:
+  esbuild:
+    banner:
+      js: |
+        import { createRequire } from 'node:module';
+        globalThis.require = createRequire(import.meta.url);
 
 functions:
   register:
-    handler: dist/lambdas/register.handler
+    handler: src/lambdas/register.handler
     events:
       - httpApi:
           path: /register
           method: post
 
   login:
-    handler: dist/lambdas/login.handler
+    handler: src/lambdas/login.handler
     events:
       - httpApi:
           path: /login
@@ -89,6 +77,24 @@ functions:
       - websocket:
           route: listarIncidencias
 
+  priorizarHorizontalmente:
+    handler: dist/lambdas/ws/PriorizarHorizontalmente.handler
+    events:
+      - websocket:
+          route: priorizarHorizontalmente
+
+  priorizarVerticalmente:
+    handler: dist/lambdas/ws/PriorizarVerticalmente.handler
+    events:
+      - websocket:
+          route: priorizarVerticalmente
+
+  cerrarIncidente:
+    handler: dist/lambdas/ws/CerrarIncidente.handler
+    events:
+      - websocket:
+          route: cerrarIncidente
+
 
 
 resources:
@@ -100,14 +106,13 @@ resources:
     DBUsuarios:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: DBUsuarios
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
           - AttributeName: userId
             AttributeType: S
-          - AttributeName: correo
+          - AttributeName: correo     # <-- Añadido
             AttributeType: S
-          - AttributeName: codigo
+          - AttributeName: codigo     # <-- Añadido
             AttributeType: S
         KeySchema:
           - AttributeName: userId
@@ -126,6 +131,11 @@ resources:
             Projection:
               ProjectionType: ALL
 
+    MiForoEventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        # 5. Este es el nombre físico
+        Name: ${self:custom.miBusDeEventos}
     # ------------------------
     # Tabla DynamoDB Incidencias
     # ------------------------
