@@ -1,57 +1,65 @@
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
-import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
-import { v4 as uuid } from "uuid";
+import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as bcrypt from "bcryptjs";
 import * as jwt from "jsonwebtoken";
 
 const db = new DynamoDBClient({});
-const eventbridge = new EventBridgeClient({});
 
-export const handler = async (event: any) => {
+export const handler = async (
+    event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
     try {
-        const body = JSON.parse(event.body);
+        if (!event.body) {
+            return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
+        }
 
-        const { codigo, nombre, correo, password } = body;
+        const { correo, password } = JSON.parse(event.body);
 
-        if (!codigo || !nombre || !correo || !password) {
+        if (!correo || !password) {
             return {
                 statusCode: 400,
-                body: JSON.stringify({ message: "Faltan campos obligatorios" })
+                body: JSON.stringify({ message: "Faltan correo o password" })
             };
         }
 
-        const userId = uuid();
+        const tableName = process.env.DB_NAME;
+        if (!tableName) {
+            return { statusCode: 500, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
+        }
 
-        // Hash de la contraseña
-        const passwordHash = await bcrypt.hash(password, 10);
+        // Buscar usuario por correo (GSI: correo-index)
+        const result = await db.send(
+            new QueryCommand({
+                TableName: tableName,
+                IndexName: "correo-index",
+                KeyConditionExpression: "correo = :c",
+                ExpressionAttributeValues: { ":c": { S: String(correo) } },
+                Limit: 1
+            })
+        );
 
-        const userItem = {
-            userId:      { S: userId },
-            codigo:      { S: codigo },
-            nombre:      { S: nombre },
-            correo:      { S: correo },
-            rol:         { S: "estudiante" },
-            area:        { S: "estudiante" },
-            creadoEn:    { S: new Date().toISOString() },
-            passwordHash:{ S: passwordHash }
-        };
+        if (!result.Items || result.Items.length === 0) {
+            return { statusCode: 401, body: JSON.stringify({ message: "Credenciales inválidas" }) };
+        }
 
-        await db.send(new PutItemCommand({
-            TableName: process.env.DB_NAME,
-            Item: userItem
-        }));
+        const user = result.Items[0];
+        if (!user) {
+            return { statusCode: 401, body: JSON.stringify({ message: "Credenciales inválidas" }) };
+        }
 
-        // Enviar evento a EventBridge
-        await eventbridge.send(new PutEventsCommand({
-            Entries: [
-                {
-                    Source: "alertautec.usuario",
-                    DetailType: "UsuarioCreado",
-                    Detail: JSON.stringify({ userId, codigo, nombre, correo }),
-                    EventBusName: process.env.EVENT_BUS_NAME
-                }
-            ]
-        }));
+        const passwordHash = user.passwordHash?.S;
+        if (!passwordHash) {
+            return { statusCode: 500, body: JSON.stringify({ message: "Usuario sin contraseña" }) };
+        }
+
+        // Verificar contraseña
+        const valid = await bcrypt.compare(password, passwordHash);
+        if (!valid) {
+            return {
+                statusCode: 401,
+                body: JSON.stringify({ message: "Credenciales inválidas" })
+            };
+        }
 
         // JWT
         const jwtSecret = process.env.JWT_SECRET;
@@ -61,27 +69,30 @@ export const handler = async (event: any) => {
                 body: JSON.stringify({ message: "Falta configuración: JWT_SECRET" })
             };
         }
+
         const payload = {
-            sub: userId,
-            correo,
-            codigo,
-            nombre,
-            rol: "estudiante",
-            area: "estudiante"
+            sub: user.userId?.S,
+            correo: user.correo?.S,
+            codigo: user.codigo?.S,
+            nombre: user.nombre?.S,
+            rol: user.rol?.S,
+            area: user.area?.S
         };
-        const expiresInEnv = process.env.JWT_EXPIRES_IN;
-        const expiresIn: string | number = expiresInEnv && expiresInEnv.trim() !== "" ? expiresInEnv : "1h";
-        
+
+        const expiresIn: string = process.env.JWT_EXPIRES_IN || "1h";
+
         const token = jwt.sign(payload, jwtSecret as jwt.Secret, {
-            expiresIn: expiresIn as any,
+            expiresIn,
             issuer: "alertautec"
         } as jwt.SignOptions);
 
         return {
-            statusCode: 201,
-            body: JSON.stringify({ message: "Usuario creado", userId, token })
+            statusCode: 200,
+            body: JSON.stringify({
+                message: "Login exitoso",
+                token
+            })
         };
-
     } catch (err: any) {
         return {
             statusCode: 500,
