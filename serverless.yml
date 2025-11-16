@@ -16,12 +16,6 @@ provider:
 
   environment:
 
-    INCIDENTS_TABLE: IncidenciasTable
-    DB_NAME: DBUsuarios
-    EVENT_BUS_NAME: default
-    JWT_SECRET: ${ssm:/alertautec-jwt-secret~true}
-    JWT_EXPIRES_IN: 1h
-
     DB_NAME: { Ref: DBUsuarios }
     EVENT_BUS_NAME: ${self:custom.miBusDeEventos}
     JWT_SECRET: ${env:JWT_SECRET}
