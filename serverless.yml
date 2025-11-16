@@ -89,6 +89,24 @@ functions:
       - websocket:
           route: listarIncidencias
 
+  priorizarHorizontalmente:
+    handler: dist/lambdas/ws/PriorizarHorizontalmente.handler
+    events:
+      - websocket:
+          route: priorizarHorizontalmente
+
+  priorizarVerticalmente:
+    handler: dist/lambdas/ws/PriorizarVerticalmente.handler
+    events:
+      - websocket:
+          route: priorizarVerticalmente
+
+  cerrarIncidente:
+    handler: dist/lambdas/ws/CerrarIncidente.handler
+    events:
+      - websocket:
+          route: cerrarIncidente
+
 
 
 resources:

@@ -4,6 +4,8 @@ import {DynamoDBDocumentClient,ScanCommand} from "@aws-sdk/lib-dynamodb";
 
 import {ApiGatewayManagementApi} from "@aws-sdk/client-apigatewaymanagementapi";
 
+import * as jwt from "jsonwebtoken";
+
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
@@ -27,6 +29,39 @@ export const handler = async (event: any) => {
       return { statusCode: 500 };
     }
 
+    // Obtener token del query string o headers
+    const token = event.queryStringParameters?.token;
+    if (!token) {
+      await wsClient.postToConnection({
+        ConnectionId: connectionId,
+        Data: JSON.stringify({ action: "error", message: "Token no proporcionado" })
+      });
+      return { statusCode: 401 };
+    }
+
+    // Decodificar JWT
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      await wsClient.postToConnection({
+        ConnectionId: connectionId,
+        Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
+      });
+      return { statusCode: 500 };
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, jwtSecret);
+    } catch (err) {
+      await wsClient.postToConnection({
+        ConnectionId: connectionId,
+        Data: JSON.stringify({ action: "error", message: "Token inválido" })
+      });
+      return { statusCode: 401 };
+    }
+
+    const { rol, area } = decoded;
+
     // Scan paginado (trae todo, más de 1MB si aplica)
     const incidencias: any[] = [];
     let ExclusiveStartKey: Record<string, any> | undefined = undefined;
@@ -42,12 +77,19 @@ export const handler = async (event: any) => {
       ExclusiveStartKey = page.LastEvaluatedKey as any;
     } while (ExclusiveStartKey);
 
+    // Filtrar según rol
+    let incidenciasFiltradas = incidencias;
+    if (rol === "autoridad" && area) {
+      incidenciasFiltradas = incidencias.filter(inc => inc.AsignadoA === area);
+    }
+    // Si es estudiante o admin, mostrar todas (no filtrar)
+
     // Enviar respuesta SOLO al cliente que la pidió
     await wsClient.postToConnection({
       ConnectionId: connectionId,
       Data: JSON.stringify({
         action: "listarIncidenciasResponse",
-        incidencias
+        incidencias: incidenciasFiltradas
       })
     });
 
