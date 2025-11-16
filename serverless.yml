@@ -11,8 +11,6 @@ provider:
   stage: dev
   memorySize: 1024
   timeout: 30
-  iam:
-    role: arn:aws:iam::516314868592:role/LabRole
 
   environment:
 
