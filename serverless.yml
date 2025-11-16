@@ -108,6 +108,12 @@ functions:
       - websocket:
           route: resolverIncidente
 
+  filtrarIncidencias:
+    handler: src/lambdas/ws/FiltrarIncidente.handler
+    events:
+      - websocket:
+          route: filtrarIncidencias
+
 
 
 resources:
