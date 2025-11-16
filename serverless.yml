@@ -1,6 +1,7 @@
 service: alerta-utec-backend
 
-frameworkVersion: "3"
+plugins:
+  - serverless-dotenv-plugin
 
 provider:
   name: aws
@@ -8,31 +9,36 @@ provider:
   region: us-east-1
   stage: dev
   environment:
-    DB_NAME: DBUsuarios
-    EVENT_BUS_NAME: default
+    DB_NAME: { Ref: DBUsuarios }
+    EVENT_BUS_NAME: ${self:custom.miBusDeEventos}
+    JWT_SECRET: ${env:JWT_SECRET}
+    JWT_EXPIRES_IN: ${env:JWT_EXPIRES_IN}
 
-  iamRoleStatements:
-    - Effect: Allow
-      Action:
-        - dynamodb:PutItem
-      Resource:
-        - arn:aws:dynamodb:us-east-1:*:table/DBUsuarios
+  role: arn:aws:iam::187904908036:role/LabRole
+  httpApi:
+    cors: true
 
-    - Effect: Allow
-      Action:
-        - events:PutEvents
-      Resource: "*"
+custom:
+  # 2. Define el nombre aquí para poder reusarlo
+  miBusDeEventos: mi-foro-eventos-${self:provider.stage}
+
+build:
+  esbuild:
+    banner:
+      js: |
+        import { createRequire } from 'node:module';
+        globalThis.require = createRequire(import.meta.url);
 
 functions:
   register:
-    handler: dist/lambdas/register.handler
+    handler: src/lambdas/register.handler
     events:
       - httpApi:
           path: /register
           method: post
 
   login:
-    handler: dist/lambdas/login.handler
+    handler: src/lambdas/login.handler
     events:
       - httpApi:
           path: /login
@@ -43,11 +49,35 @@ resources:
     DBUsuarios:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: DBUsuarios
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
           - AttributeName: userId
             AttributeType: S
+          - AttributeName: correo     # <-- Añadido
+            AttributeType: S
+          - AttributeName: codigo     # <-- Añadido
+            AttributeType: S
         KeySchema:
           - AttributeName: userId
             KeyType: HASH
+        
+        # 👇 ESTA ES LA PARTE IMPORTANTE 👇
+        GlobalSecondaryIndexes:
+          - IndexName: correo-index
+            KeySchema:
+              - AttributeName: correo
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: codigo-index
+            KeySchema:
+              - AttributeName: codigo
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    MiForoEventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        # 5. Este es el nombre físico
+        Name: ${self:custom.miBusDeEventos}

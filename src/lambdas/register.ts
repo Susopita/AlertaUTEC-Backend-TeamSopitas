@@ -37,35 +37,31 @@ export const handler = async (
         }
 
         // ↓↓↓ PREVENIR DUPLICADOS USANDO GSI ↓↓↓
-        try {
-            const byCorreo = await db.send(
-                new QueryCommand({
-                    TableName: tableName,
-                    IndexName: "correo-index",
-                    KeyConditionExpression: "correo = :c",
-                    ExpressionAttributeValues: { ":c": { S: String(correo) } },
-                    Limit: 1
-                })
-            );
-            if ((byCorreo.Items?.length ?? 0) > 0) {
-                return { statusCode: 409, body: JSON.stringify({ message: "Correo ya registrado" }) };
-            }
-        } catch { /* si no existe GSI, continuar */ }
+        const byCorreo = await db.send(
+            new QueryCommand({
+                TableName: tableName,
+                IndexName: "correo-index",
+                KeyConditionExpression: "correo = :c",
+                ExpressionAttributeValues: { ":c": { S: String(correo) } },
+                Limit: 1
+            })
+        );
+        if ((byCorreo.Items?.length ?? 0) > 0) {
+            return { statusCode: 409, body: JSON.stringify({ message: "Correo ya registrado" }) };
+        }
 
-        try {
-            const byCodigo = await db.send(
-                new QueryCommand({
-                    TableName: tableName,
-                    IndexName: "codigo-index",
-                    KeyConditionExpression: "codigo = :k",
-                    ExpressionAttributeValues: { ":k": { S: String(codigo) } },
-                    Limit: 1
-                })
-            );
-            if ((byCodigo.Items?.length ?? 0) > 0) {
-                return { statusCode: 409, body: JSON.stringify({ message: "Código ya registrado" }) };
-            }
-        } catch { /* si no existe GSI, continuar */ }
+        const byCodigo = await db.send(
+            new QueryCommand({
+                TableName: tableName,
+                IndexName: "codigo-index",
+                KeyConditionExpression: "codigo = :k",
+                ExpressionAttributeValues: { ":k": { S: String(codigo) } },
+                Limit: 1
+            })
+        );
+        if ((byCodigo.Items?.length ?? 0) > 0) {
+            return { statusCode: 409, body: JSON.stringify({ message: "Código ya registrado" }) };
+        }
 
         // Generar usuario
         const userId = uuid();
