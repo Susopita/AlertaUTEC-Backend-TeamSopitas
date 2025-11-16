@@ -4,53 +4,19 @@ import { v4 as uuidv4 } from "uuid";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
-  PutCommand,
-  UpdateCommand
+  PutCommand
 } from "@aws-sdk/lib-dynamodb";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
-import * as jwt from "jsonwebtoken";
+import { ApiGatewayManagementApi } from "@aws-sdk/client-apigatewaymanagementapi"; // 👈 AÑADIDO
+import { verifyConnection } from "../../utils/auth-check.js"; // 👈 AÑADIDO
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const INCIDENTS_TABLE = process.env.INCIDENTS_TABLE!;
-const PRIORITY_COUNTERS_TABLE = process.env.PRIORITY_COUNTERS_TABLE!; // requerido si no envían IndexPrioridad
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "";
-const JWT_SECRET = process.env.JWT_SECRET || "";
 
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddb = DynamoDBDocumentClient.from(ddbClient);
 const eb = new EventBridgeClient({ region: REGION });
-
-type User = { userId?: string; role?: string };
-
-/** Extrae usuario: preferir requestContext.authorizer; fallback decodificar (solo dev) */
-function getUser(event: APIGatewayProxyEvent): User | null {
-  const auth = (event as any)?.requestContext?.authorizer;
-  const claims = auth?.jwt?.claims || auth?.claims;
-  if (claims) {
-    return {
-      userId: claims.sub || claims["username"],
-      role: (claims["cognito:groups"] || claims["role"] || claims["custom:role"] || "")
-        .toString()
-        .toLowerCase()
-    };
-  }
-
-  const header = event.headers?.Authorization || event.headers?.authorization;
-  if (header && header.startsWith("Bearer ") && JWT_SECRET) {
-    // extraer token de forma segura y que TS entienda que es string
-    const parts = header.split(" ");
-    const token = parts.length > 1 ? parts[1] : undefined;
-    if (!token) return null;
-
-    try {
-      const payload = jwt.verify(token, JWT_SECRET) as any;
-      return { userId: payload.sub || payload.userId, role: (payload.role || "").toLowerCase() };
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
 
 /** Normaliza urgencia a 'alto'|'medio'|'bajo' o devuelve null si inválida */
 function normalizeUrgencia(v: any): "alto" | "medio" | "bajo" | null {
@@ -63,87 +29,95 @@ function normalizeUrgencia(v: any): "alto" | "medio" | "bajo" | null {
 }
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+
+  // ----- 1. Configuración de WebSocket -----
+  console.log("[crearIncidente] Iniciando ejecución...");
+  const connectionId = event.requestContext.connectionId!;
+  const domain = event.requestContext.domainName!;
+  const stage = event.requestContext.stage!;
+
+  const wsClient = new ApiGatewayManagementApi({
+    endpoint: `https://${domain}/${stage}`
+  });
+
+  const sendWsError = async (message: string, statusCode: number) => {
+    await wsClient.postToConnection({
+      ConnectionId: connectionId,
+      Data: JSON.stringify({ action: "error", message: message })
+    });
+    return { statusCode, body: JSON.stringify({ message }) };
+  };
+
   try {
-    const user = getUser(event);
-    if (!user?.userId) {
-      return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
+    // ----- 2. Autenticación (¡LA PARTE CORREGIDA!) -----
+    console.log(`[crearIncidente] Verificando conexión: ${connectionId}`);
+    let authData;
+    try {
+      // Usamos la función compartida
+      authData = await verifyConnection(connectionId);
+    } catch (authError: any) {
+      console.warn(`[crearIncidente] Fallo de autenticación: ${authError.message}`);
+      return await sendWsError(authError.message, 401);
     }
-    if ((user.role ?? "") !== "estudiante") {
-      return { statusCode: 403, body: JSON.stringify({ message: "No autorizado: rol debe ser estudiante" }) };
+
+    console.log(`[crearIncidente] Autorización exitosa para: ${authData.userId}, Rol: ${authData.roles}`);
+
+    // ----- 3. Lógica de Negocio (Tu código original) -----
+
+    // Verificación de Rol (como en tu código original)
+    if ((authData.roles ?? "") !== "estudiante") {
+      console.warn(`[crearIncidente] Fallo de autorización: rol '${authData.roles}' no es 'estudiante'.`);
+      return await sendWsError("No autorizado: rol debe ser estudiante", 403);
     }
 
     if (!event.body) {
-      return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
+      console.warn("[crearIncidente] Fallo de validación: Body vacío.");
+      return await sendWsError("Body vacío", 400);
     }
     const body = JSON.parse(event.body);
+    console.log("[crearIncidente] Body parseado:", JSON.stringify(body));
 
     // validaciones básicas
     if (!body.descripcion || !body.categoria) {
-      return { statusCode: 400, body: JSON.stringify({ message: "Faltan campos obligatorios: descripcion o categoria" }) };
+      console.warn("[crearIncidente] Fallo de validación: Faltan descripcion o categoria.");
+      return await sendWsError("Faltan campos obligatorios: descripcion o categoria", 400);
     }
 
-    // obtener/normalizar urgencia (compatibilidad con campos previos)
     const urg = normalizeUrgencia(body.urgencia || body.prioridad || body.prioridadNivel);
     if (!urg) {
       return { statusCode: 400, body: JSON.stringify({ message: "Campo 'urgencia' inválido. Debe ser: alto, medio o bajo" }) };
     }
 
-    // si envían IndexPrioridad lo validamos; si no, generamos uno atómico desde PRIORITY_COUNTERS_TABLE
-    let IndexPrioridad: number | null = null;
-    if (body.IndexPrioridad !== undefined && body.IndexPrioridad !== null) {
-      const v = Number(body.IndexPrioridad);
-      if (!Number.isFinite(v) || v < 0 || !Number.isInteger(v)) {
-        return { statusCode: 400, body: JSON.stringify({ message: "IndexPrioridad debe ser entero >= 0" }) };
-      }
-      IndexPrioridad = v;
-      // nota: usar IndexPrioridad manual puede producir colisiones; se espera usar funciones de priorización para reordenar
-    } else {
-      // generamos índice atómico por urgencia usando PRIORITY_COUNTERS_TABLE
-      if (!PRIORITY_COUNTERS_TABLE) {
-        return { statusCode: 500, body: JSON.stringify({ message: "Error interno: falta configuración PRIORITY_COUNTERS_TABLE" }) };
-      }
-
-      const counterKey = { urgencia: urg };
-      const updateCounterParams = {
-        TableName: PRIORITY_COUNTERS_TABLE,
-        Key: counterKey,
-        UpdateExpression: "SET #last = if_not_exists(#last, :zero) + :inc",
-        ExpressionAttributeNames: { "#last": "last" },
-        ExpressionAttributeValues: { ":inc": 1, ":zero": 0 },
-        ReturnValues: "UPDATED_NEW"
-      };
-
-      // UpdateCommand typing for doc client — usar any para evitar TS estricto
-      const counterResp: any = await ddb.send(new UpdateCommand(updateCounterParams as any));
-      IndexPrioridad = counterResp?.Attributes?.last;
-      if (IndexPrioridad == null) {
-        return { statusCode: 500, body: JSON.stringify({ message: "Error generando IndexPrioridad" }) };
-      }
-    }
+    let IndexPrioridad: number;
+    IndexPrioridad = Date.now();
+    console.log(`[crearIncidente] No se proveyó IndexPrioridad. Usando timestamp por defecto: ${IndexPrioridad}`);
 
     const now = new Date().toISOString();
     const incidenciaId = uuidv4();
 
     const item = {
       incidenciaId,
-      estado: "pendiente",               // 'pendiente' | 'en_atencion' | 'resuelto'
-      urgencia: urg,                     // 'alto'|'medio'|'bajo'
-      IndexPrioridad,                    // entero
+      estado: "pendiente",
+      urgencia: urg,
+      IndexPrioridad,
       descripcion: body.descripcion,
       categoria: body.categoria,
       ubicacion: body.ubicacion || null,
-      reportadoPor: user.userId,
+      reportadoPor: authData.userId, // 👈 Usamos el ID verificado
       asignadoA: body.asignadoA || null,
       createdAt: now,
       updatedAt: now,
       version: 1
     };
 
+    console.log("[crearIncidente] Creando item en DynamoDB:", JSON.stringify(item));
     await ddb.send(new PutCommand({ TableName: INCIDENTS_TABLE, Item: item }));
+    console.log("[crearIncidente] Item guardado en DynamoDB.");
 
-    // publicar evento (opcional)
+    // publicar evento
     if (EVENT_BUS_NAME) {
       try {
+        console.log(`[crearIncidente] Publicando evento en EventBridge: ${EVENT_BUS_NAME}`);
         await eb.send(new PutEventsCommand({
           Entries: [
             {
@@ -154,17 +128,33 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             }
           ]
         }));
+        console.log("[crearIncidente] Evento publicado exitosamente.");
       } catch (evErr) {
-        console.warn("Advertencia: no se pudo publicar evento en EventBridge", evErr);
+        console.warn("[crearIncidente] Advertencia: no se pudo publicar evento en EventBridge", evErr);
       }
     }
 
-    return {
-      statusCode: 201,
-      body: JSON.stringify({ mensaje: "Incidente creado", incidenciaId, urgencia: urg, IndexPrioridad })
-    };
+    // ----- 4. Respuesta de Éxito (WebSocket) -----
+    console.log(`[crearIncidente] Ejecución exitosa. IncidenteID: ${incidenciaId}`);
+
+    // En lugar de retornar el body, lo enviamos al cliente
+    await wsClient.postToConnection({
+      ConnectionId: connectionId,
+      Data: JSON.stringify({
+        action: "crearIncidenteSuccess", // Una acción para que el frontend sepa
+        mensaje: "Incidente creado",
+        incidenciaId,
+        urgencia: urg,
+        IndexPrioridad
+      })
+    });
+
+    // Retornamos 200 solo para AWS
+    return { statusCode: 200, body: JSON.stringify({ mensaje: "Incidente creado", incidenciaId, urgencia: urg, IndexPrioridad }) };
+
   } catch (err: any) {
-    console.error("crearIncidente error:", err);
-    return { statusCode: 500, body: JSON.stringify({ message: "Error interno", error: err?.message }) };
+    console.error("[crearIncidente] Error fatal en el handler:", err);
+    // Envía un error genérico al cliente si la conexión sigue viva
+    return await sendWsError("Error interno del servidor", 500);
   }
 };

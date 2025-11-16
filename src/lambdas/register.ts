@@ -7,12 +7,16 @@ import * as bcrypt from "bcryptjs";
 const db = new DynamoDBClient({});
 const eventbridge = new EventBridgeClient({});
 
+const jsonHeaders = {
+    "Content-Type": "application/json"
+};
+
 export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
     try {
         if (!event.body) {
-            return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
+            return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ message: "Body vacío" }) };
         }
 
         const { codigo, nombre, correo, password } = JSON.parse(event.body);
@@ -20,6 +24,7 @@ export const handler = async (
         if (!codigo || !nombre || !correo || !password) {
             return {
                 statusCode: 400,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Faltan campos obligatorios" })
             };
         }
@@ -27,13 +32,14 @@ export const handler = async (
         if (String(password).length < 8) {
             return {
                 statusCode: 400,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Password mínimo 8 caracteres" })
             };
         }
 
         const tableName = process.env.DB_NAME;
         if (!tableName) {
-            return { statusCode: 500, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
+            return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
         }
 
         // ↓↓↓ PREVENIR DUPLICADOS USANDO GSI ↓↓↓
@@ -47,7 +53,7 @@ export const handler = async (
             })
         );
         if ((byCorreo.Items?.length ?? 0) > 0) {
-            return { statusCode: 409, body: JSON.stringify({ message: "Correo ya registrado" }) };
+            return { statusCode: 409, headers: jsonHeaders, body: JSON.stringify({ message: "Correo ya registrado" }) };
         }
 
         const byCodigo = await db.send(
@@ -60,7 +66,7 @@ export const handler = async (
             })
         );
         if ((byCodigo.Items?.length ?? 0) > 0) {
-            return { statusCode: 409, body: JSON.stringify({ message: "Código ya registrado" }) };
+            return { statusCode: 409, headers: jsonHeaders, body: JSON.stringify({ message: "Código ya registrado" }) };
         }
 
         // Generar usuario
@@ -101,11 +107,13 @@ export const handler = async (
 
         return {
             statusCode: 201,
+            headers: jsonHeaders,
             body: JSON.stringify({ message: "Usuario creado", userId })
         };
     } catch (err: any) {
         return {
             statusCode: 500,
+            headers: jsonHeaders,
             body: JSON.stringify({ message: "Error interno", error: err.message })
         };
     }

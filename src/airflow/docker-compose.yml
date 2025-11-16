@@ -1,0 +1,76 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  # Usamos la imagen que construiste localmente
+  image: alerta-utec-airflow:latest 
+  user: "${AIRFLOW_UID:-50000}:0" # Usuario para permisos de archivos
+  environment:
+    # --- Configuración de la Base de Datos ---
+    # Airflow necesita una URL de conexión SQL que apunte al servicio 'postgres'
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://airflow_user:airflow_pass@postgres:5432/airflow_db
+    # --- Otras Configuraciones ---
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor # Usa el LocalExecutor simple para desarrollo
+    AIRFLOW__WEBSERVER__SECRET_KEY: "super_secreto_desarrollo" # Clave de sesión
+    AIRFLOW_UID: 50000
+    AIRFLOW_PROJ_DIR: /opt/airflow
+  volumes:
+    # Monta la carpeta de DAGs local para ver los cambios en vivo
+    - ./dags:/opt/airflow/dags:rw
+    # Monta el Dockerfile para que sepa dónde está el home
+    - ./Dockerfile:/opt/airflow/Dockerfile:ro 
+    - ./logs:/opt/airflow/logs:rw
+  # El punto de entrada es el script que inicializa el proceso
+  entrypoint: ["/opt/airflow/entrypoint.sh"]
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # 1. Base de Datos (Metastore)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: airflow_user
+      POSTGRES_PASSWORD: airflow_pass
+      POSTGRES_DB: airflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck: # Garantiza que Airflow espere a que la BD esté lista
+      test: ["CMD", "pg_isready", "-U", "airflow_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Inicializador de la Base de Datos
+  airflow-init:
+    <<: *airflow-common # Hereda la configuración común
+    command: bash -c "exec /opt/airflow/entrypoint.sh airflow db migrate" # Comando para inicializar la DB
+    container_name: airflow-init
+
+  # 3. Servidor Web (Interfaz de Usuario)
+  airflow-webserver:
+    <<: *airflow-common
+    command: ["airflow", "webserver"]
+    ports:
+      - "8080:8080"
+    container_name: airflow-webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+    depends_on:
+      - airflow-init # Espera a que la DB esté inicializada
+
+  # 4. Scheduler (Planificador de DAGs)
+  airflow-scheduler:
+    <<: *airflow-common
+    command: ["airflow", "scheduler"]
+    container_name: airflow-scheduler
+    depends_on:
+      - airflow-init
+    
+volumes:
+  pg-data:

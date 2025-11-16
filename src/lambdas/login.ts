@@ -5,12 +5,16 @@ import * as jwt from "jsonwebtoken";
 
 const db = new DynamoDBClient({});
 
+const jsonHeaders = {
+    "Content-Type": "application/json"
+};
+
 export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
     try {
         if (!event.body) {
-            return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
+            return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ message: "Body vacío" }) };
         }
 
         const { correo, password } = JSON.parse(event.body);
@@ -18,13 +22,14 @@ export const handler = async (
         if (!correo || !password) {
             return {
                 statusCode: 400,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Faltan correo o password" })
             };
         }
 
         const tableName = process.env.DB_NAME;
         if (!tableName) {
-            return { statusCode: 500, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
+            return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
         }
 
         // Buscar usuario por correo (GSI: correo-index)
@@ -39,17 +44,17 @@ export const handler = async (
         );
 
         if (!result.Items || result.Items.length === 0) {
-            return { statusCode: 401, body: JSON.stringify({ message: "Credenciales inválidas" }) };
+            return { statusCode: 401, headers: jsonHeaders, body: JSON.stringify({ message: "Credenciales inválidas" }) };
         }
 
         const user = result.Items[0];
         if (!user) {
-            return { statusCode: 401, body: JSON.stringify({ message: "Credenciales inválidas" }) };
+            return { statusCode: 401, headers: jsonHeaders, body: JSON.stringify({ message: "Credenciales inválidas" }) };
         }
 
         const passwordHash = user.passwordHash?.S;
         if (!passwordHash) {
-            return { statusCode: 500, body: JSON.stringify({ message: "Usuario sin contraseña" }) };
+            return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Usuario sin contraseña" }) };
         }
 
         // Verificar contraseña
@@ -57,6 +62,7 @@ export const handler = async (
         if (!valid) {
             return {
                 statusCode: 401,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Credenciales inválidas" })
             };
         }
@@ -66,6 +72,7 @@ export const handler = async (
         if (!jwtSecret) {
             return {
                 statusCode: 500,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Falta configuración: JWT_SECRET" })
             };
         }
@@ -88,6 +95,7 @@ export const handler = async (
 
         return {
             statusCode: 200,
+            headers: jsonHeaders,
             body: JSON.stringify({
                 message: "Login exitoso",
                 token
@@ -96,6 +104,7 @@ export const handler = async (
     } catch (err: any) {
         return {
             statusCode: 500,
+            headers: jsonHeaders,
             body: JSON.stringify({ message: "Error interno", error: err.message })
         };
     }

@@ -53,7 +53,7 @@ functions:
           method: post
 
   authenticate:
-    handler: src/lambdas/authenticate.handler
+    handler: src/lambdas/ws/authenticate.handler
     events:
       - websocket:
           route: authenticate

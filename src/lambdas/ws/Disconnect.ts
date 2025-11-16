@@ -17,6 +17,7 @@ export const handler = async (event: APIGatewayProxyEvent) => {
         }));
 
         if (!queryResult.Items || queryResult.Items.length === 0) {
+            console.log(`Nada que limpiar para la conexión: ${connectionId}`);
             return { statusCode: 200, body: "Nada que limpiar" };
         }
 
@@ -38,9 +39,11 @@ export const handler = async (event: APIGatewayProxyEvent) => {
             }
         }));
 
+        console.log(`Desconectado y limpiado exitosamente: ${connectionId}`);
         return { statusCode: 200, body: "Desconectado y limpiado" };
     } catch (err) {
         console.error("Error al desconectar:", err);
+        console.error(`Error al desconectar ${connectionId}:`, err);
         return { statusCode: 200, body: "Error en limpieza" };
     }
 };
