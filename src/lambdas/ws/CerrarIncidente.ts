@@ -2,6 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ApiGatewayManagementApi } from "@aws-sdk/client-apigatewaymanagementapi";
 import * as jwt from "jsonwebtoken";
+import { eventBridgeService } from "../../services/eventBridgeService.js";
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -96,6 +97,13 @@ export const handler = async (event: any) => {
         }
       })
     );
+
+    // Emitir evento de cerrar incidente
+    await eventBridgeService.publishCerrarIncidente({
+      incidenciaId,
+      cerradoPor: decoded.sub,
+      motivo: "Cerrado por administrador"
+    });
 
     // Responder al cliente
     await wsClient.postToConnection({

@@ -6,9 +6,9 @@ import {
   DynamoDBDocumentClient,
   PutCommand
 } from "@aws-sdk/lib-dynamodb";
-import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 import { ApiGatewayManagementApi } from "@aws-sdk/client-apigatewaymanagementapi"; // 👈 AÑADIDO
 import { verifyConnection } from "../../utils/auth-check.js"; // 👈 AÑADIDO
+import { eventBridgeService } from "../../services/eventBridgeService.js";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const INCIDENTS_TABLE = process.env.INCIDENTS_TABLE!;
@@ -16,7 +16,6 @@ const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "";
 
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddb = DynamoDBDocumentClient.from(ddbClient);
-const eb = new EventBridgeClient({ region: REGION });
 
 /** Normaliza urgencia a 'alto'|'medio'|'bajo' o devuelve null si inválida */
 function normalizeUrgencia(v: any): "alto" | "medio" | "bajo" | null {
@@ -114,25 +113,17 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     await ddb.send(new PutCommand({ TableName: INCIDENTS_TABLE, Item: item }));
     console.log("[crearIncidente] Item guardado en DynamoDB.");
 
-    // publicar evento
-    if (EVENT_BUS_NAME) {
-      try {
-        console.log(`[crearIncidente] Publicando evento en EventBridge: ${EVENT_BUS_NAME}`);
-        await eb.send(new PutEventsCommand({
-          Entries: [
-            {
-              EventBusName: EVENT_BUS_NAME,
-              Source: "alertautec.incidents",
-              DetailType: "IncidenteCreado",
-              Detail: JSON.stringify({ incidente: item })
-            }
-          ]
-        }));
-        console.log("[crearIncidente] Evento publicado exitosamente.");
-      } catch (evErr) {
-        console.warn("[crearIncidente] Advertencia: no se pudo publicar evento en EventBridge", evErr);
-      }
-    }
+    // Emitir evento a EventBridge usando el servicio
+    await eventBridgeService.publishIncidenteCreado({
+      incidenciaId,
+      titulo: body.categoria || "Sin título",
+      descripcion: body.descripcion,
+      urgencia: urg,
+      tipo: body.categoria,
+      ubicacion: body.ubicacion,
+      area: body.area,
+      creadoPor: authData.userId
+    });
 
     // ----- 4. Respuesta de Éxito (WebSocket) -----
     console.log(`[crearIncidente] Ejecución exitosa. IncidenteID: ${incidenciaId}`);
