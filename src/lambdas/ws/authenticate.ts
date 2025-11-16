@@ -1,4 +1,4 @@
-// src/lambdas/authenticate.ts
+import { ApiGatewayManagementApi } from "@aws-sdk/client-apigatewaymanagementapi";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
@@ -13,6 +13,8 @@ export const handler = async (
 ): Promise<APIGatewayProxyResult> => {
 
     console.log('[Authenticate] Lambda invocada');
+    console.log("[Auth] Iniciando autenticación para conexión:", event.requestContext.connectionId);
+
     const connectionId = event.requestContext.connectionId;
     if (!connectionId) {
         console.warn('[Authenticate] ID de conexión no encontrado');
@@ -28,8 +30,11 @@ export const handler = async (
     }
 
     try {
+        console.log(`[Auth] Token recibido para ${connectionId}. Verificando...`);
         // 1. Validar el token (firma y expiración)
         const payload: any = jwt.verify(token, JWT_SECRET);
+
+        console.log(`[Auth] Token verificado para ${connectionId}. Payload:`, JSON.stringify(payload));
 
         // 2. Extraer los datos del token
         const userId = payload.sub; // Asumiendo que 'sub' es tu userId
@@ -41,6 +46,8 @@ export const handler = async (
             return { statusCode: 400, body: "Token inválido (faltan datos)" };
         }
 
+        console.log(`[Auth] Actualizando DynamoDB para ${connectionId} con userId: ${userId}`);
+
         // 3. Actualizar la fila "metadata" de la conexión en DynamoDB
         await db.send(new UpdateCommand({
             TableName: TABLE_NAME,
@@ -49,7 +56,10 @@ export const handler = async (
                 "viewId": "metadata"
             },
             // Le "sellamos" la identidad y el tiempo de expiración
-            UpdateExpression: "SET isAuthorized = :auth, userId = :uid, roles = :r, expiration = :exp",
+            UpdateExpression: "SET isAuthorized = :auth, userId = :uid, #roles = :r, expiration = :exp",
+            ExpressionAttributeNames: {
+                "#roles": "roles"
+            },
             ExpressionAttributeValues: {
                 ":auth": true,
                 ":uid": userId,
@@ -59,19 +69,24 @@ export const handler = async (
         }));
         console.log(`[Authenticate] Usuario autenticado: ${userId}`);
 
+        console.log(`[Auth] DynamoDB actualizado para ${connectionId}. Enviando 'auth-success'.`);
+
         // 4. Avisar al cliente que la autenticación fue exitosa
         // (Esto es opcional, pero bueno para depurar)
-        // const wsClient = new ApiGatewayManagementApi(...);
-        // await wsClient.postToConnection({
-        //     ConnectionId: connectionId,
-        //     Data: JSON.stringify({ action: "auth-success" })
-        // });
+        const wsClient = new ApiGatewayManagementApi({
+            endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`
+        });
+        await wsClient.postToConnection({
+            ConnectionId: connectionId,
+            Data: JSON.stringify({ action: "auth-success" })
+        });
 
+        console.log(`[Auth] Autenticación exitosa para ${connectionId}.`);
         return { statusCode: 200, body: "Autenticado exitosamente" };
 
     } catch (err) {
         // Si jwt.verify falla (token expirado, firma inválida), entra aquí
-        console.warn('[Authenticate] Token inválido o expirado');
+        console.error('[Authenticate] Token inválido o expirado:', err);
         return { statusCode: 401, body: "Token inválido o expirado" };
     }
 };

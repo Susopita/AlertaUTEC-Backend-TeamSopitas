@@ -16,15 +16,15 @@ const eb = new EventBridgeClient({ region: REGION });
 
 type JwtUser = { userId?: string; role?: string; email?: string };
 
-/**
- * Extrae usuario de requestContext.authorizer (preferido) o decodifica el JWT del header (solo fallback para dev).
- * En producción use un Authorizer (Cognito / JWT authorizer) para claims verificadas.
- */
 function getUserFromEvent(event: any): JwtUser {
+  console.log("Extrayendo usuario del evento...");
+
   const ctx = event?.requestContext ?? {};
   const auth = ctx.authorizer;
   const jwtClaims = auth?.jwt?.claims || auth?.claims;
+
   if (jwtClaims) {
+    console.log("Claims encontrados en requestContext.authorizer");
     return {
       userId: jwtClaims.sub || jwtClaims["username"],
       role: (jwtClaims["cognito:groups"] || jwtClaims["role"] || jwtClaims["custom:role"] || "")
@@ -34,26 +34,37 @@ function getUserFromEvent(event: any): JwtUser {
     };
   }
 
-  // Fallback (solo desarrollo): decodificar token sin verificar firma
   const authHeader = event?.headers?.Authorization || event?.headers?.authorization;
+  if (authHeader) {
+    console.log("Intentando decodificar token desde el header...");
+  }
+
   if (authHeader && authHeader.startsWith("Bearer ") && JWT_SECRET) {
     try {
       const token = authHeader.split(" ")[1];
       const payload = jwt.verify(token, JWT_SECRET) as any;
+      console.log("JWT decodificado exitosamente en fallback dev mode");
       return {
         userId: payload.sub || payload.userId || payload.uid,
         role: (payload.role || payload["custom:role"] || "").toString().toLowerCase(),
         email: payload.email
       };
     } catch {
-      // invalid token
+      console.warn("Token inválido en fallback");
     }
   }
 
+  console.warn("No se pudo obtener usuario (ni claims ni token decodificado)");
   return {};
 }
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  console.log("borrarIncidente invoked. Event summary:", {
+    hasBody: !!event.body,
+    path: event.path,
+    method: event.httpMethod
+  });
+
   try {
     console.log('[EliminarIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
@@ -62,6 +73,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     const user = getUserFromEvent(event);
+    console.log("Usuario identificado:", user);
+
     if (!user.userId) {
       console.warn('[EliminarIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
@@ -74,53 +87,66 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     const body = JSON.parse(event.body);
     const incidenciaId = body.incidenciaId || body.incidentId || body.id;
+
+    console.log("Incidencia solicitada a eliminar:", incidenciaId);
+
     if (!incidenciaId) {
       console.warn('[EliminarIncidente] Falta incidenciaId');
       return { statusCode: 400, body: JSON.stringify({ message: "Falta incidenciaId" }) };
     }
 
-    // Obtener incidente
+    // Leer incidente
+    console.log("Consultando incidente en DynamoDB...");
     const getResp = await ddb.send(new GetCommand({ TableName: INCIDENTS_TABLE, Key: { incidenciaId } }));
+
     if (!getResp.Item) {
+      console.warn("Incidente no encontrado:", incidenciaId);
       return { statusCode: 404, body: JSON.stringify({ message: "Incidente no encontrado" }) };
     }
 
-    const reportadoPor = (getResp.Item as any).reportadoPor;
+    console.log("Incidente encontrado:", getResp.Item);
 
-    // Permisos:
-    // - admin / autoridad pueden eliminar cualquiera
-    // - estudiante solo puede eliminar si es propietario
+    const reportadoPor = (getResp.Item as any).reportadoPor;
     const role = (user.role || "").toString().toLowerCase();
+
+    console.log(`Validando permisos. Rol: "${role}", reportadoPor: "${reportadoPor}"`);
+
     if (role === "estudiante") {
       if (String(reportadoPor) !== String(user.userId)) {
+        console.warn("Estudiante intentó eliminar incidente que no le pertenece");
         return { statusCode: 403, body: JSON.stringify({ message: "No autorizado: no es propietario del incidente" }) };
       }
     } else if (!["admin", "autoridad"].includes(role)) {
+      console.warn("Rol no permitido para eliminar:", role);
       return { statusCode: 403, body: JSON.stringify({ message: "No autorizado" }) };
     }
 
-    // Borrar con condición (si estudiante: garantizamos que sigue siendo propietario)
     const deleteParams: any = { TableName: INCIDENTS_TABLE, Key: { incidenciaId } };
 
     if (role === "estudiante") {
       deleteParams.ConditionExpression = "reportadoPor = :rid";
       deleteParams.ExpressionAttributeValues = { ":rid": user.userId };
+      console.log("Aplicando condición de propietario en DELETE");
     }
 
+    console.log("Ejecutando DeleteCommand...");
     try {
       await ddb.send(new DeleteCommand(deleteParams));
+      console.log("Incidente eliminado correctamente:", incidenciaId);
     } catch (e: any) {
+      console.error("Error al eliminar en DynamoDB:", e);
       if (e?.name === "ConditionalCheckFailedException") {
-        return { statusCode: 409, body: JSON.stringify({ message: "Conflicto: no se pudo eliminar (condición fallida)" }) };
+        return {
+          statusCode: 409,
+          body: JSON.stringify({ message: "Conflicto: no se pudo eliminar (condición fallida)" })
+        };
       }
       throw e;
     }
 
-    // Nota: no renumeramos IndexPrioridad aquí. Dejar huecos es aceptable y más eficiente.
-    // Si necesitas compactar la cola, implementa un proceso de reindexado por urgencia (off-line).
-
-    // Publicar evento en EventBridge (opcional)
+    // EventBridge
     if (EVENT_BUS_NAME) {
+      console.log("Publicando evento en EventBridge...");
       try {
         await eb.send(new PutEventsCommand({
           Entries: [
@@ -132,15 +158,15 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             }
           ]
         }));
+        console.log("Evento publicado correctamente");
       } catch (evErr) {
-        console.warn("Advertencia: no se pudo publicar evento en EventBridge", evErr);
-        // no fallamos la operación por un fallo en el event bus
+        console.warn("No se pudo publicar evento en EventBridge:", evErr);
       }
     }
 
     return { statusCode: 200, body: JSON.stringify({ mensaje: "Incidente eliminado", incidenciaId }) };
   } catch (err: any) {
-    console.error("borrarIncidente error:", err);
+    console.error("Error inesperado en borrarIncidente:", err);
     return { statusCode: 500, body: JSON.stringify({ message: "Error interno", error: err?.message }) };
   }
 };

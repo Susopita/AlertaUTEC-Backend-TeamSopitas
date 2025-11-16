@@ -21,7 +21,6 @@ provider:
     INCIDENTS_TABLE: { Ref: IncidenciasTable }
     DB_CONEXIONES: { Ref: DBConexiones }
 
-
   role: arn:aws:iam::187904908036:role/LabRole
   httpApi:
     cors: true
@@ -53,7 +52,7 @@ functions:
           method: post
 
   authenticate:
-    handler: src/lambdas/authenticate.handler
+    handler: src/lambdas/ws/authenticate.handler
     events:
       - websocket:
           route: authenticate

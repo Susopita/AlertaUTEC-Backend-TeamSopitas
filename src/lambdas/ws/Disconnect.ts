@@ -39,6 +39,7 @@ export const handler = async (event: APIGatewayProxyEvent) => {
                 [TABLE_NAME]: deleteRequests
             }
         }));
+
         console.log(`[Disconnect] Conexión y suscripciones eliminadas: ${connectionId}`);
         return { statusCode: 200, body: "Desconectado y limpiado" };
     } catch (err) {

@@ -5,6 +5,10 @@ import * as jwt from "jsonwebtoken";
 
 const db = new DynamoDBClient({});
 
+const jsonHeaders = {
+    "Content-Type": "application/json"
+};
+
 export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
@@ -12,7 +16,7 @@ export const handler = async (
         console.log('[Login] Lambda invocada');
         if (!event.body) {
             console.warn('[Login] Body vacío');
-            return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
+            return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ message: "Body vacío" }) };
         }
 
         const { correo, password } = JSON.parse(event.body);
@@ -22,6 +26,7 @@ export const handler = async (
             console.warn('[Login] Faltan correo o password');
             return {
                 statusCode: 400,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Faltan correo o password" })
             };
         }
@@ -29,7 +34,7 @@ export const handler = async (
         const tableName = process.env.DB_NAME;
         if (!tableName) {
             console.error('[Login] Falta configuración: DB_NAME');
-            return { statusCode: 500, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
+            return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
         }
 
         // Buscar usuario por correo (GSI: correo-index)
@@ -45,19 +50,19 @@ export const handler = async (
 
         if (!result.Items || result.Items.length === 0) {
             console.warn('[Login] Credenciales inválidas (correo no encontrado)');
-            return { statusCode: 401, body: JSON.stringify({ message: "Credenciales inválidas" }) };
+            return { statusCode: 401, headers: jsonHeaders, body: JSON.stringify({ message: "Credenciales inválidas" }) };
         }
 
         const user = result.Items[0];
         if (!user) {
             console.warn('[Login] Credenciales inválidas (usuario no encontrado)');
-            return { statusCode: 401, body: JSON.stringify({ message: "Credenciales inválidas" }) };
+            return { statusCode: 401, headers: jsonHeaders, body: JSON.stringify({ message: "Credenciales inválidas" }) };
         }
 
         const passwordHash = user.passwordHash?.S;
         if (!passwordHash) {
             console.error('[Login] Usuario sin contraseña');
-            return { statusCode: 500, body: JSON.stringify({ message: "Usuario sin contraseña" }) };
+            return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Usuario sin contraseña" }) };
         }
 
         // Verificar contraseña
@@ -66,6 +71,7 @@ export const handler = async (
             console.warn('[Login] Contraseña incorrecta');
             return {
                 statusCode: 401,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Credenciales inválidas" })
             };
         }
@@ -76,6 +82,7 @@ export const handler = async (
             console.error('[Login] Falta configuración: JWT_SECRET');
             return {
                 statusCode: 500,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Falta configuración: JWT_SECRET" })
             };
         }
@@ -99,6 +106,7 @@ export const handler = async (
 
         return {
             statusCode: 200,
+            headers: jsonHeaders,
             body: JSON.stringify({
                 message: "Login exitoso",
                 token
@@ -108,6 +116,7 @@ export const handler = async (
         console.error('[Login] Error interno:', err);
         return {
             statusCode: 500,
+            headers: jsonHeaders,
             body: JSON.stringify({ message: "Error interno", error: err.message })
         };
     }

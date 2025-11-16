@@ -6,6 +6,10 @@ import { eventBridgeService } from "../services/eventBridgeService.js";
 
 const db = new DynamoDBClient({});
 
+const jsonHeaders = {
+    "Content-Type": "application/json"
+};
+
 export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
@@ -13,7 +17,7 @@ export const handler = async (
         console.log('[Register] Lambda invocada');
         if (!event.body) {
             console.warn('[Register] Body vacío');
-            return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
+            return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ message: "Body vacío" }) };
         }
 
         const { codigo, nombre, correo, password } = JSON.parse(event.body);
@@ -23,6 +27,7 @@ export const handler = async (
             console.warn('[Register] Faltan campos obligatorios');
             return {
                 statusCode: 400,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Faltan campos obligatorios" })
             };
         }
@@ -31,6 +36,7 @@ export const handler = async (
             console.warn('[Register] Password menor a 8 caracteres');
             return {
                 statusCode: 400,
+                headers: jsonHeaders,
                 body: JSON.stringify({ message: "Password mínimo 8 caracteres" })
             };
         }
@@ -38,7 +44,7 @@ export const handler = async (
         const tableName = process.env.DB_NAME;
         if (!tableName) {
             console.error('[Register] Falta configuración: DB_NAME');
-            return { statusCode: 500, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
+            return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
         }
 
         // ↓↓↓ PREVENIR DUPLICADOS USANDO GSI ↓↓↓
@@ -53,7 +59,7 @@ export const handler = async (
         );
         if ((byCorreo.Items?.length ?? 0) > 0) {
             console.warn('[Register] Correo ya registrado');
-            return { statusCode: 409, body: JSON.stringify({ message: "Correo ya registrado" }) };
+            return { statusCode: 409, headers: jsonHeaders, body: JSON.stringify({ message: "Correo ya registrado" }) };
         }
 
         const byCodigo = await db.send(
@@ -67,7 +73,7 @@ export const handler = async (
         );
         if ((byCodigo.Items?.length ?? 0) > 0) {
             console.warn('[Register] Código ya registrado');
-            return { statusCode: 409, body: JSON.stringify({ message: "Código ya registrado" }) };
+            return { statusCode: 409, headers: jsonHeaders, body: JSON.stringify({ message: "Código ya registrado" }) };
         }
 
         // Generar usuario
@@ -107,12 +113,14 @@ export const handler = async (
 
         return {
             statusCode: 201,
+            headers: jsonHeaders,
             body: JSON.stringify({ message: "Usuario creado", userId })
         };
     } catch (err: any) {
         console.error('[Register] Error interno:', err);
         return {
             statusCode: 500,
+            headers: jsonHeaders,
             body: JSON.stringify({ message: "Error interno", error: err.message })
         };
     }

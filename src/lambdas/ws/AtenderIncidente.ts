@@ -16,11 +16,12 @@ const eb = new EventBridgeClient({ region: REGION });
 
 type JwtUser = { userId?: string; role?: string; email?: string };
 
-/** Extrae usuario: preferir requestContext.authorizer; fallback decodificar token (solo dev) */
+/** Extrae usuario */
 function getUserFromEvent(event: any): JwtUser {
   const ctx = event?.requestContext ?? {};
   const auth = ctx.authorizer;
   const jwtClaims = auth?.jwt?.claims || auth?.claims;
+
   if (jwtClaims) {
     return {
       userId: jwtClaims.sub || jwtClaims["username"],
@@ -31,7 +32,6 @@ function getUserFromEvent(event: any): JwtUser {
     };
   }
 
-  // Fallback (solo desarrollo): decodificar token sin verificar firma
   const authHeader = event?.headers?.Authorization || event?.headers?.authorization;
   if (authHeader && authHeader.startsWith("Bearer ") && JWT_SECRET) {
     try {
@@ -43,7 +43,7 @@ function getUserFromEvent(event: any): JwtUser {
         email: payload.email
       };
     } catch {
-      // invalid token
+      // ignore
     }
   }
 
@@ -51,6 +51,10 @@ function getUserFromEvent(event: any): JwtUser {
 }
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  console.log("=== atenderIncidente Invocado ===");
+  console.log("Headers:", event.headers);
+  console.log("Body recibido:", event.body);
+
   try {
     console.log('[AtenderIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
@@ -59,13 +63,15 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     const user = getUserFromEvent(event);
+    console.log("Usuario autenticado:", user);
+
     if (!user.userId) {
       console.warn('[AtenderIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
 
-    // Solo admins/autoridad pueden atender incidentes
     const role = (user.role || "").toString().toLowerCase();
+    console.log("Rol detectado:", role);
     if (!["admin", "autoridad"].includes(role)) {
       console.warn('[AtenderIncidente] No autorizado: rol insuficiente');
       return { statusCode: 403, body: JSON.stringify({ message: "No autorizado: rol insuficiente" }) };
@@ -77,32 +83,38 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     const body = JSON.parse(event.body);
+    console.log("Body parseado:", body);
+
     const incidenciaId = body.incidenciaId || body.incidentId || body.id;
     if (!incidenciaId) {
       console.warn('[AtenderIncidente] Falta incidenciaId');
       return { statusCode: 400, body: JSON.stringify({ message: "Falta incidenciaId" }) };
     }
 
-    // Opcional: assigned override, por defecto el actor que atiende
     const assignedOverride = body.asignadoA ?? body.asignadoPor ?? null;
     const assignedTo = assignedOverride || user.userId;
+    console.log("AsignadoA:", assignedTo);
 
-    // Verificar que el incidente exista
+    // Obtener incidente
+    console.log("Consultando incidente:", incidenciaId);
     const getResp = await ddb.send(new GetCommand({ TableName: INCIDENTS_TABLE, Key: { incidenciaId } }));
+
+    console.log("Resultado GetCommand:", getResp);
+
     if (!getResp.Item) {
       console.warn('[AtenderIncidente] Incidente no encontrado');
       return { statusCode: 404, body: JSON.stringify({ message: "Incidente no encontrado" }) };
     }
 
-    // Construir update: estado='en_atencion', asignadoA, updatedAt, version++
+    // Construir update
     const now = new Date().toISOString();
-    const ExpressionAttributeNames: Record<string, string> = {
+    const ExpressionAttributeNames = {
       "#estado": "estado",
       "#asignadoA": "asignadoA",
       "#updatedAt": "updatedAt",
       "#version": "version"
     };
-    const ExpressionAttributeValues: Record<string, any> = {
+    const ExpressionAttributeValues = {
       ":estado": "en_atencion",
       ":assigned": assignedTo,
       ":updatedAt": now,
@@ -114,7 +126,6 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const UpdateExpression =
       "SET #estado = :estado, #asignadoA = :assigned, #updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :inc";
 
-    // Condición: solo pasar a 'en_atencion' si actualmente está 'pendiente'
     const params: any = {
       TableName: INCIDENTS_TABLE,
       Key: { incidenciaId },
@@ -125,11 +136,17 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       ReturnValues: "ALL_NEW"
     };
 
+    console.log("UpdateCommand params:", params);
+
     let updateResp: any;
     try {
       updateResp = await ddb.send(new UpdateCommand(params as any));
+      console.log("UpdateCommand resultado:", updateResp);
     } catch (e: any) {
+      console.error("Error en UpdateCommand:", e);
+
       if (e?.name === "ConditionalCheckFailedException") {
+        console.warn("No se pudo actualizar: condición fallida (no estaba pendiente)");
         return {
           statusCode: 409,
           body: JSON.stringify({
@@ -142,27 +159,33 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     const newItem = updateResp.Attributes;
 
-    // Publicar evento IncidenteEnAtencion
+    // Publicar evento
     if (EVENT_BUS_NAME) {
+      console.log("Enviando evento IncidenteEnAtencion a EventBridge");
       try {
-        await eb.send(new PutEventsCommand({
-          Entries: [
-            {
-              EventBusName: EVENT_BUS_NAME,
-              Source: "alertautec.incidents",
-              DetailType: "IncidenteEnAtencion",
-              Detail: JSON.stringify({ incidenciaId, actor: user.userId, assignedTo, item: newItem })
-            }
-          ]
-        }));
+        await eb.send(
+          new PutEventsCommand({
+            Entries: [
+              {
+                EventBusName: EVENT_BUS_NAME,
+                Source: "alertautec.incidents",
+                DetailType: "IncidenteEnAtencion",
+                Detail: JSON.stringify({ incidenciaId, actor: user.userId, assignedTo, item: newItem })
+              }
+            ]
+          })
+        );
+        console.log("Evento publicado correctamente");
       } catch (evErr) {
-        console.warn("Advertencia: no se pudo publicar evento en EventBridge", evErr);
+        console.warn("No se pudo publicar evento en EventBridge:", evErr);
       }
     }
 
+    console.log("=== Fin OK atenderIncidente ===");
+
     return { statusCode: 200, body: JSON.stringify({ mensaje: "Incidente en atención", item: newItem }) };
   } catch (err: any) {
-    console.error("atenderIncidente error:", err);
+    console.error("atenderIncidente error fatal:", err);
     return { statusCode: 500, body: JSON.stringify({ message: "Error interno", error: err?.message }) };
   }
 };

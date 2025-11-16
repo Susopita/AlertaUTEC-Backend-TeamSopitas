@@ -58,35 +58,48 @@ function getUserFromEvent(event: any): JwtUser {
  * - NO permite cambiar 'urgencia' ni 'IndexPrioridad'. Para eso use los handlers de priorización (horizontal/vertical) que son para admins.
  */
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  console.log("actualizarIncidente - inicio", { path: event.path, method: event.httpMethod, requestId: (event as any).requestContext?.requestId });
+
   try {
-    console.log('[ActualizarIncident] Lambda invocada');
+    console.log('[ActualizarIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
-      console.error('[ActualizarIncident] Falta configuración: INCIDENTS_TABLE');
+      console.error('[ActualizarIncidente] Falta configuración: INCIDENTS_TABLE');
       return { statusCode: 500, body: JSON.stringify({ message: "Error interno: configuración" }) };
     }
 
     const user = getUserFromEvent(event);
+    console.log("actualizarIncidente - usuario extraído", { userId: user.userId, role: user.role });
+
     if (!user.userId) {
-      console.warn('[ActualizarIncident] No autorizado: token faltante o inválido');
+      console.warn('[ActualizarIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
 
     if (!event.body) {
-      console.warn('[ActualizarIncident] Body vacío');
+      console.warn('[ActualizarIncidente] Body vacío');
       return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
     }
 
     const body = JSON.parse(event.body);
+    console.log("actualizarIncidente - body recibido (parcial)", {
+      incidenciaId: body.incidenciaId || body.incidentId || body.id,
+      keysInUpdates: body.updates ? Object.keys(body.updates) : null
+    });
+
     const incidenciaId = body.incidenciaId || body.incidentId || body.id;
     const updates = body.updates;
     if (!incidenciaId || !updates || typeof updates !== "object") {
-      console.warn('[ActualizarIncident] Faltan incidenciaId o updates válidos');
+      console.warn('[ActualizarIncidente] Faltan incidenciaId o updates válidos');
       return { statusCode: 400, body: JSON.stringify({ message: "Faltan incidenciaId o updates válidos" }) };
     }
 
     // Obtener incidente actual
+    console.log("actualizarIncidente - obteniendo incidente", { incidenciaId });
     const getResp = await ddb.send(new GetCommand({ TableName: INCIDENTS_TABLE, Key: { incidenciaId } }));
+    console.log("actualizarIncidente - getResp", { found: !!getResp.Item });
+
     if (!getResp.Item) {
+      console.warn("actualizarIncidente - incidente no encontrado", { incidenciaId });
       return { statusCode: 404, body: JSON.stringify({ message: "Incidente no encontrado" }) };
     }
 
@@ -94,6 +107,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     // Solo el reportadoPor puede editar con este endpoint (estudiante)
     if (String(item.reportadoPor) !== String(user.userId)) {
+      console.warn("actualizarIncidente - usuario no propietario", { incidenciaId, owner: item.reportadoPor, actor: user.userId });
       return { statusCode: 403, body: JSON.stringify({ message: "No autorizado: no es propietario del incidente" }) };
     }
 
@@ -117,7 +131,10 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       if (!forbidden.has(k)) allowedUpdates[k] = updates[k];
     }
 
+    console.log("actualizarIncidente - allowedUpdates", { count: Object.keys(allowedUpdates).length, fields: Object.keys(allowedUpdates) });
+
     if (Object.keys(allowedUpdates).length === 0) {
+      console.warn("actualizarIncidente - no hay campos actualizables");
       return { statusCode: 400, body: JSON.stringify({ message: "No hay campos actualizables en 'updates' o se intentó cambiar campos no permitidos" }) };
     }
 
@@ -160,11 +177,22 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     };
     params.ExpressionAttributeValues[":rid"] = user.userId;
 
+    console.log("actualizarIncidente - update params (sanitized)", {
+      TableName: params.TableName,
+      Key: params.Key,
+      UpdateExpression: params.UpdateExpression,
+      ExpressionAttributeNames: Object.keys(ExpressionAttributeNames),
+      ExpressionAttributeValuesKeys: Object.keys(ExpressionAttributeValues),
+      ConditionExpression: params.ConditionExpression
+    });
+
     let updateResp: any;
     try {
       // workaround para tipos: el DocumentClient puede requerir cast a any
       updateResp = await ddb.send(new UpdateCommand(params as any) as any);
+      console.log("actualizarIncidente - update successful");
     } catch (e: any) {
+      console.error("actualizarIncidente - update failed", { name: e?.name, message: e?.message });
       if (e?.name === "ConditionalCheckFailedException") {
         return { statusCode: 409, body: JSON.stringify({ message: "Conflicto: no se pudo actualizar (condición fallida)" }) };
       }
@@ -172,10 +200,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     const newItem = (updateResp as any)?.Attributes;
+    console.log("actualizarIncidente - newItem", { incidenciaId, updatedAt: newItem?.updatedAt });
 
     // Publicar evento (opcional)
     if (EVENT_BUS_NAME) {
       try {
+        console.log("actualizarIncidente - publicando evento EventBridge", { detailType: "IncidenteActualizado", incidenciaId });
         await eb.send(new PutEventsCommand({
           Entries: [
             {
@@ -186,14 +216,16 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             }
           ]
         }));
+        console.log("actualizarIncidente - evento publicado");
       } catch (evErr) {
-        console.warn("Advertencia: no se pudo publicar evento en EventBridge", evErr);
+        console.warn("actualizarIncidente - no se pudo publicar evento en EventBridge", evErr);
       }
     }
 
+    console.log("actualizarIncidente - fin correcto", { incidenciaId, actor: user.userId });
     return { statusCode: 200, body: JSON.stringify({ mensaje: "Incidente actualizado", item: newItem }) };
   } catch (err: any) {
-    console.error("actualizarIncidente error:", err);
+    console.error("actualizarIncidente error:", { message: err?.message, stack: err?.stack });
     return { statusCode: 500, body: JSON.stringify({ message: "Error interno", error: err?.message }) };
   }
 };
