@@ -1,11 +1,10 @@
 import { DynamoDBClient, PutItemCommand, QueryCommand } from "@aws-sdk/client-dynamodb";
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 import { v4 as uuid } from "uuid";
 import * as bcrypt from "bcryptjs";
+import { eventBridgeService } from "../services/eventBridgeService.js";
 
 const db = new DynamoDBClient({});
-const eventbridge = new EventBridgeClient({});
 
 export const handler = async (
     event: APIGatewayProxyEvent
@@ -85,19 +84,15 @@ export const handler = async (
             })
         );
 
-        // Emitir evento a EventBridge
-        await eventbridge.send(
-            new PutEventsCommand({
-                Entries: [
-                    {
-                        Source: "alertautec.usuario",
-                        DetailType: "UsuarioCreado",
-                        Detail: JSON.stringify({ userId, codigo, nombre, correo }),
-                        EventBusName: process.env.EVENT_BUS_NAME
-                    }
-                ]
-            })
-        );
+        // Emitir evento a EventBridge usando el servicio
+        await eventBridgeService.publishUsuarioCreado({
+            userId,
+            codigo: String(codigo),
+            nombre: String(nombre),
+            correo: String(correo),
+            rol: "estudiante",
+            area: "estudiante"
+        });
 
         return {
             statusCode: 201,

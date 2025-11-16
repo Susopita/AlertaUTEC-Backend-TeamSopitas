@@ -1,8 +1,8 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ApiGatewayManagementApi } from "@aws-sdk/client-apigatewaymanagementapi";
-// ❌ Se fue: import * as jwt from "jsonwebtoken";
-import { verifyConnection } from "../../utils/auth-check.js"; // 👈✅ Agregamos esto
+import { verifyConnection } from "../../utils/auth-check.js";
+import { eventBridgeService } from "../../services/eventBridgeService.js";
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -96,6 +96,13 @@ export const handler = async (event: any) => {
                 }
             })
         );
+
+        // Emitir evento de incidente resuelto
+        await eventBridgeService.publishIncidenteResuelto({
+            incidenciaId,
+            resolucion: "Incidente resuelto por autoridad",
+            resueltoPor: authData.userId
+        });
 
         // Responder al cliente
         await wsClient.postToConnection({

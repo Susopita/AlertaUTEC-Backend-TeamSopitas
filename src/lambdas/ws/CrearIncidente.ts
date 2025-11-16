@@ -7,18 +7,16 @@ import {
   PutCommand,
   UpdateCommand
 } from "@aws-sdk/lib-dynamodb";
-import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 import * as jwt from "jsonwebtoken";
+import { eventBridgeService } from "../../services/eventBridgeService.js";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const INCIDENTS_TABLE = process.env.INCIDENTS_TABLE!;
 const PRIORITY_COUNTERS_TABLE = process.env.PRIORITY_COUNTERS_TABLE!; // requerido si no envían IndexPrioridad
-const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "";
 const JWT_SECRET = process.env.JWT_SECRET || "";
 
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddb = DynamoDBDocumentClient.from(ddbClient);
-const eb = new EventBridgeClient({ region: REGION });
 
 type User = { userId?: string; role?: string };
 
@@ -137,23 +135,17 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     await ddb.send(new PutCommand({ TableName: INCIDENTS_TABLE, Item: item }));
 
-    // publicar evento (opcional)
-    if (EVENT_BUS_NAME) {
-      try {
-        await eb.send(new PutEventsCommand({
-          Entries: [
-            {
-              EventBusName: EVENT_BUS_NAME,
-              Source: "alertautec.incidents",
-              DetailType: "IncidenteCreado",
-              Detail: JSON.stringify({ incidente: item })
-            }
-          ]
-        }));
-      } catch (evErr) {
-        console.warn("Advertencia: no se pudo publicar evento en EventBridge", evErr);
-      }
-    }
+    // Emitir evento a EventBridge usando el servicio
+    await eventBridgeService.publishIncidenteCreado({
+      incidenciaId,
+      titulo: body.categoria || "Sin título",
+      descripcion: body.descripcion,
+      urgencia: urg,
+      tipo: body.categoria,
+      ubicacion: body.ubicacion,
+      area: body.area,
+      creadoPor: user.userId
+    });
 
     return {
       statusCode: 201,

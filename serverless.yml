@@ -114,6 +114,28 @@ functions:
       - websocket:
           route: filtrarIncidencias
 
+  # ==================== LAMBDAS PROCESADORAS DE QUEUES ====================
+  
+  # Lambda que procesa Queue Incidentes (notificaciones WebSocket)
+  procesarQueueIncidentes:
+    handler: src/lambdas/queues/procesarQueueIncidentes.handler
+    environment:
+      WEBSOCKET_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+    events:
+      - sqs:
+          arn: !GetAtt QueueIncidentes.Arn
+          batchSize: 10
+          maximumBatchingWindowInSeconds: 5
+
+  # Lambda que procesa Queue Orquestación (clasificación automática)
+  procesarQueueOrquestacion:
+    handler: src/lambdas/queues/procesarQueueOrquestacion.handler
+    events:
+      - sqs:
+          arn: !GetAtt QueueOrquestacion.Arn
+          batchSize: 10
+          maximumBatchingWindowInSeconds: 5
+
 
 
 resources:
@@ -150,11 +172,181 @@ resources:
             Projection:
               ProjectionType: ALL
 
+    # ------------------------
+    # EventBridge Event Bus
+    # ------------------------
     MiForoEventBus:
       Type: AWS::Events::EventBus
       Properties:
-        # 5. Este es el nombre físico
         Name: ${self:custom.miBusDeEventos}
+
+    # ------------------------
+    # SQS Queues
+    # ------------------------
+    
+    # Queue para eventos de incidentes (notificaciones)
+    QueueIncidentes:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-incidentes-queue
+        VisibilityTimeout: 300
+        MessageRetentionPeriod: 345600  # 4 días
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt QueueIncidentesDLQ.Arn
+          maxReceiveCount: 3
+
+    # Dead Letter Queue para incidentes
+    QueueIncidentesDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-incidentes-dlq
+        MessageRetentionPeriod: 1209600  # 14 días
+
+    # Queue para orquestación (clasificación)
+    QueueOrquestacion:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-orquestacion-queue
+        VisibilityTimeout: 300
+        MessageRetentionPeriod: 345600
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt QueueOrquestacionDLQ.Arn
+          maxReceiveCount: 3
+
+    # Dead Letter Queue para orquestación
+    QueueOrquestacionDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-orquestacion-dlq
+        MessageRetentionPeriod: 1209600
+
+    # ------------------------
+    # EventBridge Rules
+    # ------------------------
+
+    # Regla: Creación Incidente -> Queue Incidentes
+    RuleCreacionIncidente:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-creacion-incidente
+        EventBusName: !Ref MiForoEventBus
+        EventPattern:
+          source:
+            - alertautec.incidente
+          detail-type:
+            - IncidenteCreado
+        Targets:
+          - Arn: !GetAtt QueueIncidentes.Arn
+            Id: QueueIncidentesTarget
+
+    # Regla: Actualización Incidente -> Queue Incidentes
+    RuleActualizacionIncidente:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-actualizacion-incidente
+        EventBusName: !Ref MiForoEventBus
+        EventPattern:
+          source:
+            - alertautec.incidente
+          detail-type:
+            - IncidenteActualizado
+            - PriorizarIncidente
+        Targets:
+          - Arn: !GetAtt QueueIncidentes.Arn
+            Id: QueueIncidentesTarget
+
+    # Regla: Incidente Eliminado -> Queue Incidentes
+    RuleIncidenteEliminado:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-incidente-eliminado
+        EventBusName: !Ref MiForoEventBus
+        EventPattern:
+          source:
+            - alertautec.incidente
+          detail-type:
+            - IncidenteEliminado
+        Targets:
+          - Arn: !GetAtt QueueIncidentes.Arn
+            Id: QueueIncidentesTarget
+
+    # Regla: Incidente En Atención -> Queue Incidentes
+    RuleIncidenteEnAtencion:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-incidente-atencion
+        EventBusName: !Ref MiForoEventBus
+        EventPattern:
+          source:
+            - alertautec.incidente
+          detail-type:
+            - IncidenteEnAtencion
+        Targets:
+          - Arn: !GetAtt QueueIncidentes.Arn
+            Id: QueueIncidentesTarget
+
+    # Regla: Incidente Resuelto -> Queue Incidentes
+    RuleIncidenteResuelto:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-incidente-resuelto
+        EventBusName: !Ref MiForoEventBus
+        EventPattern:
+          source:
+            - alertautec.incidente
+          detail-type:
+            - IncidenteResuelto
+            - CerrarIncidente
+        Targets:
+          - Arn: !GetAtt QueueIncidentes.Arn
+            Id: QueueIncidentesTarget
+
+    # Regla: Clasificación Requerida -> Queue Orquestación
+    RuleClasificacionRequerida:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-clasificacion-requerida
+        EventBusName: !Ref MiForoEventBus
+        EventPattern:
+          source:
+            - alertautec.incidente
+          detail-type:
+            - IncidenteCreado
+            - IncidenteActualizado
+        Targets:
+          - Arn: !GetAtt QueueOrquestacion.Arn
+            Id: QueueOrquestacionTarget
+
+    # ------------------------
+    # Permisos para que EventBridge envíe a SQS
+    # ------------------------
+    
+    QueueIncidentesPolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref QueueIncidentes
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: events.amazonaws.com
+              Action: SQS:SendMessage
+              Resource: !GetAtt QueueIncidentes.Arn
+
+    QueueOrquestacionPolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref QueueOrquestacion
+        PolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: events.amazonaws.com
+              Action: SQS:SendMessage
+              Resource: !GetAtt QueueOrquestacion.Arn
+
     # ------------------------
     # Tabla DynamoDB Incidencias
     # ------------------------
