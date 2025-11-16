@@ -95,6 +95,12 @@ functions:
       - websocket:
           route: cerrarIncidente
 
+  filtrarIncidencias:
+    handler: src/lambdas/ws/FiltrarIncidente.handler
+    events:
+      - websocket:
+          route: filtrarIncidencias
+
 
 
 resources:
