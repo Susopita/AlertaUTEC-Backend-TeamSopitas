@@ -1,3 +1,4 @@
+org: tuorg
 service: alerta-utec-backend
 
 plugins:
@@ -8,11 +9,17 @@ provider:
   runtime: nodejs20.x
   region: us-east-1
   stage: dev
+  memorySize: 1024
+  timeout: 30
+  iam:
+    role: arn:aws:iam::{iam}:role/LabRole
+
   environment:
     DB_NAME: { Ref: DBUsuarios }
     EVENT_BUS_NAME: ${self:custom.miBusDeEventos}
     JWT_SECRET: ${env:JWT_SECRET}
     JWT_EXPIRES_IN: ${env:JWT_EXPIRES_IN}
+    INCIDENTS_TABLE: { Ref: IncidenciasTable }
 
   role: arn:aws:iam::187904908036:role/LabRole
   httpApi:
@@ -44,8 +51,56 @@ functions:
           path: /login
           method: post
 
+  connect:
+    handler: dist/lambdas/ws/connect.handler
+    events:
+      - websocket:
+          route: $connect
+
+  disconnect:
+    handler: dist/lambdas/ws/disconnect.handler
+    events:
+      - websocket:
+          route: $disconnect
+
+  default:
+    handler: dist/lambdas/ws/default.handler
+    events:
+      - websocket:
+          route: $default
+
+  listarIncidencias:
+    handler: dist/lambdas/ws/ListarIncidencias.handler
+    events:
+      - websocket:
+          route: listarIncidencias
+
+  priorizarHorizontalmente:
+    handler: dist/lambdas/ws/PriorizarHorizontalmente.handler
+    events:
+      - websocket:
+          route: priorizarHorizontalmente
+
+  priorizarVerticalmente:
+    handler: dist/lambdas/ws/PriorizarVerticalmente.handler
+    events:
+      - websocket:
+          route: priorizarVerticalmente
+
+  cerrarIncidente:
+    handler: dist/lambdas/ws/CerrarIncidente.handler
+    events:
+      - websocket:
+          route: cerrarIncidente
+
+
+
 resources:
   Resources:
+
+    # ------------------------
+    # Tabla DynamoDB Usuarios
+    # ------------------------
     DBUsuarios:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -60,8 +115,6 @@ resources:
         KeySchema:
           - AttributeName: userId
             KeyType: HASH
-        
-        # 👇 ESTA ES LA PARTE IMPORTANTE 👇
         GlobalSecondaryIndexes:
           - IndexName: correo-index
             KeySchema:
@@ -81,3 +134,17 @@ resources:
       Properties:
         # 5. Este es el nombre físico
         Name: ${self:custom.miBusDeEventos}
+    # ------------------------
+    # Tabla DynamoDB Incidencias
+    # ------------------------
+    IncidenciasTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: IncidenciasTable
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: incidenciaId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: incidenciaId
+            KeyType: HASH
