@@ -7,7 +7,7 @@
     "moduleResolution": "NodeNext",
 
     // Tipos de Node y Lambda
-    "types": ["node", "aws-lambda"],
+    "types": ["node", "aws-lambda", "uuid", "jsonwebtoken"],
 
     // Output
     "sourceMap": true,
