@@ -12,15 +12,17 @@ provider:
   memorySize: 1024
   timeout: 30
   iam:
-    role: arn:aws:iam::{iam}:role/LabRole
+    role: arn:aws:iam::516314868592:role/LabRole
 
   environment:
+
     DB_NAME: { Ref: DBUsuarios }
     EVENT_BUS_NAME: ${self:custom.miBusDeEventos}
     JWT_SECRET: ${env:JWT_SECRET}
     JWT_EXPIRES_IN: ${env:JWT_EXPIRES_IN}
     INCIDENTS_TABLE: { Ref: IncidenciasTable }
     DB_CONEXIONES: { Ref: DBConexiones }
+
 
   role: arn:aws:iam::187904908036:role/LabRole
   httpApi:
