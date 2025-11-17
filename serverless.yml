@@ -11,6 +11,7 @@ provider:
   stage: dev
   memorySize: 1024
   timeout: 30
+  role: arn:aws:iam::187904908036:role/LabRole
 
   environment:
 
@@ -21,7 +22,6 @@ provider:
     INCIDENTS_TABLE: { Ref: IncidenciasTable }
     DB_CONEXIONES: { Ref: DBConexiones }
 
-  role: arn:aws:iam::187904908036:role/LabRole
   httpApi:
     cors: true
 
@@ -74,6 +74,12 @@ functions:
     events:
       - websocket:
           route: $default
+
+  crearIncidente: 
+    handler: src/lambdas/ws/CrearIncidente.handler
+    events:
+      - websocket:
+          route: crearIncidente
 
   listarIncidencias:
     handler: src/lambdas/ws/ListarIncidencias.handler
