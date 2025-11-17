@@ -1,32 +1,31 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-
     // Modo recomendado para Node 18-20 (lo que usa AWS Lambda y AWS SDK v3)
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-
     // Tipos de Node y Lambda
-    "types": ["node", "aws-lambda", "uuid", "jsonwebtoken"],
-
+    "types": [
+      "jest",
+      "node",
+      "aws-lambda",
+      "uuid",
+      "jsonwebtoken",
+    ],
     // Output
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-
     // Seguridad y checks útiles
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-
     // Modularización segura
     "isolatedModules": true,
     "moduleDetection": "force",
-
     // Opciones estrictas útiles
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-
     // Importante: debe estar en false para evitar tus errores de imports
     "verbatimModuleSyntax": false,
     "rootDir": "src",

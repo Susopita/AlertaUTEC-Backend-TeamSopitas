@@ -12,7 +12,6 @@ import { eventBridgeService } from "../../services/eventBridgeService.js";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const INCIDENTS_TABLE = process.env.INCIDENTS_TABLE!;
-const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "";
 
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddb = DynamoDBDocumentClient.from(ddbClient);
