@@ -73,7 +73,7 @@ export class WsTestClient {
 
     async subscribe(view: string) {
         const promise = this.waitForMessage("subscribe-success"); // Asumiendo que tu Lambda 'subscribe' responde así
-        this.send({ action: "subscribe", view });
+        this.send({ action: "suscribe", view });
         return promise;
     }
 }

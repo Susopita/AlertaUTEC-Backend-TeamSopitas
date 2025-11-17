@@ -88,7 +88,9 @@ describe('Flujo de Creación y Notificación de Incidentes', () => {
             action: "crearIncidente",
             descripcion: incidenteDescripcion,
             categoria: incidenteCategoria,
-            urgencia: "bajo"
+            urgencia: "bajo",
+            ubicacion: "Urbano",
+            viewId: VISTA_COMPARTIDA
         });
 
         // --------------------------------

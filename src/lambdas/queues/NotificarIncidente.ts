@@ -3,24 +3,10 @@ import { BatchWriteItemCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb"
 import {
   DynamoDBDocumentClient,
   QueryCommand,
-  DeleteCommand
 } from "@aws-sdk/lib-dynamodb";
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 
-/**
- * Worker (Notificador) que:
- * - Lee un mensaje de SQS.
- * - El body del mensaje DEBE contener "viewId", "eventType" y "payload".
- * - Consulta el GSI "view-index" de la tabla de conexiones.
- * - Envía una notificación a todas las conexiones suscritas.
- *
- * Variables de entorno:
- * - DB_CONEXIONES (Nombre de la tabla de conexiones)
- * - WEBSOCKET_ENDPOINT (El endpoint de la API, ej: https://{api-id}.execute-api.../{stage})
- */
-
 // --- Configuración Simplificada ---
-// AWS_REGION es inyectado automáticamente por Lambda
 const REGION = process.env.AWS_REGION || "us-east-1";
 const WS_TABLE = process.env.DB_CONEXIONES!;
 // Corregido para coincidir con tu serverless.yml
@@ -33,11 +19,16 @@ const ddb = DynamoDBDocumentClient.from(ddbClient);
 const apigw = new ApiGatewayManagementApiClient({ endpoint: WS_API_ENDPOINT });
 
 /**
- * Estructura esperada de cada mensaje SQS:
+ * Estructura del 'record.body' (lo que SQS recibe de EventBridge):
  * {
- * "viewId": "view#incident:123",
- * "eventType": "IncidenteCreado",
- * "payload": { ... }
+ * "version": "0",
+ * "id": "...",
+ * "detail-type": "IncidenteCreado", // <-- El eventType
+ * "source": "alertautec.incidents",
+ * "detail": { // <-- El payload
+ * "incidente": { ... },
+ * "viewId": "view#main_list" // <-- El publicador DEBE añadir esto
+ * }
  * }
  */
 export const handler = async (event: SQSEvent) => {
@@ -47,29 +38,36 @@ export const handler = async (event: SQSEvent) => {
     console.log(`[Notificador] Procesando record ${idx + 1}/${event.Records.length} (ID: ${record.messageId})`);
 
     try {
-      const body = JSON.parse(record.body || "{}");
-      console.debug("Parsed SQS body:", body);
+      // 1. Parsear el sobre de EventBridge desde el body de SQS
+      const ebEvent = JSON.parse(record.body || "{}");
+      console.debug("Parsed SQS body (EventBridge Envelope):", ebEvent);
 
-      // --- Lógica de Búsqueda Simplificada ---
-      const viewId: string | undefined = body.viewId;
-      const eventType: string = body.eventType || "notification"; // 'action' podría ser mejor
-      const payload = body.payload ?? body.incident ?? null;
+      // --- Lógica de Búsqueda CORREGIDA ---
+
+      // 2. Extraer los datos del *interior* del sobre
+      // NOTA: Tu 'crearIncidente' stringifica el 'detail'. ¡No debería!
+      // Este código asume que 'detail' es un OBJETO.
+      // Si 'crearIncidente' sigue enviando un string, necesitas un JSON.parse() extra.
+      const detail = ebEvent.detail || {};
+      const eventType: string = ebEvent['detail-type'] || "notification";
+      const viewId: string | undefined = detail.viewId; // Asumimos que el publicador lo añade
+      const payload = detail.incidente ?? detail; // El payload es el 'detail'
 
       if (!viewId) {
-        console.warn(`[Notificador] Mensaje sin 'viewId'. Se omite. (ID: ${record.messageId})`);
+        console.warn(`[Notificador] Mensaje sin 'viewId' en el 'detail'. Se omite. (ID: ${record.messageId})`);
         continue;
       }
       // ----------------------------------------
 
       console.log(`[Notificador] Buscando conexiones para viewId: ${viewId}`);
 
-      // Consulta el GSI para encontrar todas las conexiones suscritas
+      // 3. Consultar el GSI (Tu lógica de Query está perfecta)
       const queryResult = await ddb.send(new QueryCommand({
         TableName: WS_TABLE,
-        IndexName: GSI_NAME, // <-- Nombre hardcodeado y correcto
+        IndexName: GSI_NAME,
         KeyConditionExpression: `viewId = :v`,
         ExpressionAttributeValues: { ":v": viewId },
-        ProjectionExpression: "connectionId" // Solo necesitamos el ID de conexión
+        ProjectionExpression: "connectionId"
       }));
 
       const connections = queryResult.Items || [];
@@ -80,15 +78,14 @@ export const handler = async (event: SQSEvent) => {
 
       console.log(`[Notificador] ${connections.length} conexiones encontradas. Iniciando fan-out...`);
 
-      // Prepara el mensaje que llegará al front
-      // (Usamos 'action' para ser consistentes con tus otras respuestas)
+      // 4. Preparar el mensaje para el frontend
       const message = JSON.stringify({
         action: eventType, // ej: "IncidenteCreado"
-        payload: payload
+        payload: payload  // El objeto 'detail' completo
       });
       const encoded = new TextEncoder().encode(message);
 
-      // Enviar a cada connectionId en paralelo
+      // 5. Enviar a todos (Tu lógica de Fan-Out y Autolimpieza está perfecta)
       const postPromises = connections.map(async (conn) => {
         const connId = conn.connectionId;
         if (!connId) return;
@@ -103,12 +100,10 @@ export const handler = async (event: SQSEvent) => {
           const status = err?.$metadata?.httpStatusCode;
           console.warn(`[Notificador] Falló notificación para ${connId} (Status: ${status})`, err.message);
 
-          // --- Lógica de Autolimpieza (Backup de $disconnect) ---
           if (status === 410 || status === 403) {
             console.log(`[Notificador] Conexión muerta detectada: ${connId}. Limpiando...`);
-            await cleanUpStaleConnection(connId);
+            await cleanUpStaleConnection(connId); // Tu función de limpieza
           }
-          // ----------------------------------------------------
         }
       });
 
@@ -116,7 +111,6 @@ export const handler = async (event: SQSEvent) => {
 
     } catch (e: any) {
       console.error(`[Notificador] Error fatal procesando record (ID: ${record.messageId}):`, e);
-      // Dejamos que SQS reintente el mensaje si es un error de parseo o similar
       throw e;
     }
   }
@@ -124,17 +118,15 @@ export const handler = async (event: SQSEvent) => {
 };
 
 /**
- * Función de autolimpieza: Borra todos los registros (metadata y vistas)
- * asociados a un connectionId que se ha detectado como muerto.
+ * Función de autolimpieza (Tu código, sin cambios)
  */
 async function cleanUpStaleConnection(connectionId: string) {
   try {
-    // 1. Encontrar todas las filas de esta conexión (PK = connectionId)
     const queryResult = await ddb.send(new QueryCommand({
       TableName: WS_TABLE,
       KeyConditionExpression: "connectionId = :cid",
       ExpressionAttributeValues: { ":cid": connectionId },
-      ProjectionExpression: "connectionId, viewId" // Solo necesitamos las claves
+      ProjectionExpression: "connectionId, viewId"
     }));
 
     const items = queryResult.Items || [];
@@ -142,7 +134,6 @@ async function cleanUpStaleConnection(connectionId: string) {
 
     console.log(`[Notificador-Cleanup] ${items.length} filas encontradas para ${connectionId}.`);
 
-    // 2. Crear una solicitud de borrado en lote (Batch)
     const deleteRequests = items.map(item => ({
       DeleteRequest: {
         Key: {
@@ -152,10 +143,9 @@ async function cleanUpStaleConnection(connectionId: string) {
       }
     }));
 
-    // 3. Ejecutar el borrado en lote
     await ddb.send(new BatchWriteItemCommand({
       RequestItems: {
-        [WS_TABLE]: deleteRequests.slice(0, 25) // Limita a 25 por request
+        [WS_TABLE]: deleteRequests.slice(0, 25)
       }
     }));
 

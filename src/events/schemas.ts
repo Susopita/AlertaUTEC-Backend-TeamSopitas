@@ -12,7 +12,7 @@ export const EventDetailTypes = {
     USUARIO_CREADO: 'UsuarioCreado',
     USUARIO_ACTUALIZADO: 'UsuarioActualizado',
     USUARIO_ELIMINADO: 'UsuarioEliminado',
-    
+
     // Eventos de Incidente (según diagrama)
     INCIDENTE_CREADO: 'IncidenteCreado',
     INCIDENTE_ACTUALIZADO: 'IncidenteActualizado',
@@ -21,7 +21,7 @@ export const EventDetailTypes = {
     INCIDENTE_RESUELTO: 'IncidenteResuelto',
     PRIORIZAR_INCIDENTE: 'PriorizarIncidente',
     CERRAR_INCIDENTE: 'CerrarIncidente',
-    
+
     // Eventos de Notificación
     NOTIFICACION_ENVIADA: 'NotificacionEnviada'
 } as const;
@@ -53,6 +53,7 @@ export interface IncidenteCreadoEvent {
     ubicacion?: string;
     area?: string;
     creadoPor: string;
+    viewId: string;
     timestamp: string;
 }
 
@@ -124,7 +125,7 @@ export interface NotificacionEnviadaEvent {
 export type EventSource = typeof EventSources[keyof typeof EventSources];
 export type EventDetailType = typeof EventDetailTypes[keyof typeof EventDetailTypes];
 
-export type EventDetail = 
+export type EventDetail =
     | UsuarioCreadoEvent
     | UsuarioActualizadoEvent
     | IncidenteCreadoEvent

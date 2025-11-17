@@ -73,6 +73,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const body = JSON.parse(event.body);
     console.log("[crearIncidente] Body parseado:", JSON.stringify(body));
 
+    if (!body.viewId) {
+      console.warn('[CrearIncidente] Falta el campo "viewId"');
+      return await sendWsError("Falta el campo 'viewId'", 400);
+    }
+
     // validaciones básicas
     if (!body.descripcion || !body.categoria) {
       console.warn('[CrearIncidente] Faltan campos obligatorios: descripcion o categoria');
@@ -120,7 +125,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       tipo: body.categoria,
       ubicacion: body.ubicacion,
       area: body.area,
-      creadoPor: authData.userId
+      creadoPor: authData.userId,
+      viewId: body.viewId
     });
 
     // ----- 4. Respuesta de Éxito (WebSocket) -----

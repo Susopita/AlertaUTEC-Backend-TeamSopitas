@@ -10,7 +10,7 @@ provider:
   region: us-east-1
   stage: dev
   memorySize: 1024
-  timeout: 30
+  timeout: 29
   role: arn:aws:iam::187904908036:role/LabRole
 
   environment:
@@ -133,14 +133,14 @@ functions:
   
   # Lambda que procesa Queue Incidentes (notificaciones WebSocket)
   procesarQueueIncidentes:
-    handler: src/lambdas/queues/procesarQueueIncidentes.handler
+    handler: src/lambdas/queues/NotificarIncidente.handler
     environment:
       WS_API_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
     events:
       - sqs:
           arn: !GetAtt QueueIncidentes.Arn
-          batchSize: 10
-          maximumBatchingWindowInSeconds: 5
+          batchSize: 1 # 👈 CAMBIA ESTO A 1
+          maximumBatchingWindow: 0 # 👈 CAMBIA ESTO A 0
 
   # Lambda que procesa Queue Orquestación (clasificación automática)
   procesarQueueOrquestacion:
@@ -148,8 +148,8 @@ functions:
     events:
       - sqs:
           arn: !GetAtt QueueOrquestacion.Arn
-          batchSize: 10
-          maximumBatchingWindowInSeconds: 5
+          batchSize: 1 # 👈 CAMBIA ESTO A 1
+          maximumBatchingWindow: 0 # 👈 CAMBIA ESTO A 0
 
 
 
