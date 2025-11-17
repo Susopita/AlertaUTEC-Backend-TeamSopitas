@@ -40,9 +40,10 @@ const apigw = new ApiGatewayManagementApiClient({ endpoint: WS_API_ENDPOINT });
  * }
  */
 export const handler = async (event: SQSEvent) => {
+  console.log('[NotificarIncidente] Lambda invocada');
   console.log("notifyIncidents invoked. Records:", event.Records.length);
   for (const [idx, record] of event.Records.entries()) {
-    console.log(`Processing record ${idx + 1}/${event.Records.length} messageId=${record.messageId}`);
+    console.log(`[NotificarIncidente] Procesando record ${idx + 1}/${event.Records.length} messageId=${record.messageId}`);
     try {
       const body = JSON.parse(record.body || "{}");
       console.debug("Parsed SQS body:", body);
@@ -53,7 +54,7 @@ export const handler = async (event: SQSEvent) => {
       const payload = body.payload ?? body.incident ?? null;
 
       if (!subscriptionKey && !viewId) {
-        console.warn("Mensaje sin subscriptionKey ni viewId - se omite", { messageId: record.messageId, body });
+        console.warn('[NotificarIncidente] Mensaje sin subscriptionKey ni viewId - se omite', { messageId: record.messageId });
         continue;
       }
 
@@ -88,7 +89,7 @@ export const handler = async (event: SQSEvent) => {
       }
 
       const connections = queryResult.Items || [];
-      console.info(`Conexiones a notificar: ${connections.length} for key=${lookupKey.value}`);
+      console.log(`[NotificarIncidente] Conexiones a notificar: ${connections.length} for key=${lookupKey.value}`);
 
       if (!connections.length) {
         console.info("notifyIncidents: no hay conexiones para key", lookupKey.value);
@@ -118,10 +119,10 @@ export const handler = async (event: SQSEvent) => {
             ConnectionId: connId,
             Data: encoded
           }));
-          console.info("Mensaje enviado correctamente a connectionId", connId);
+          console.log(`[NotificarIncidente] Notificado: ${connId}`);
         } catch (err: any) {
           const status = err?.$metadata?.httpStatusCode;
-          console.warn(`postToConnection failed for ${connId} status=${status} error=${err?.message}`);
+          console.warn(`[NotificarIncidente] Falló notificación para ${connId} status=${status}`, err?.message);
           // Si la conexión está muerta (410) o acceso denegado (403), borrar las filas asociadas a esa connectionId
           if (status === 410 || status === 403) {
             console.info("Detectada conexión inválida, limpiando filas asociadas", { connectionId: connId, status });
@@ -134,7 +135,7 @@ export const handler = async (event: SQSEvent) => {
                 ProjectionExpression: "connectionId, viewId"
               }));
               const items = connRows.Items || [];
-              console.log("Filas encontradas para cleanup:", items.length);
+              console.log(`[NotificarIncidente] Filas encontradas para cleanup: ${items.length}`);
               for (const it of items) {
                 const view = (it as any).viewId;
                 try {
@@ -142,13 +143,13 @@ export const handler = async (event: SQSEvent) => {
                     TableName: WS_TABLE,
                     Key: { connectionId: connId, viewId: view }
                   }));
-                  console.info("Deleted stale connection row", { connectionId: connId, viewId: view });
+                  console.log(`[NotificarIncidente] Conexión obsoleta eliminada: ${connId}, viewId: ${view}`);
                 } catch (delErr) {
-                  console.error("Failed to delete stale connection row", { connectionId: connId, viewId: view, error: (delErr instanceof Error ? delErr.message : delErr) });
+                  console.error('[NotificarIncidente] Error eliminando conexión obsoleta', { connectionId: connId, viewId: view, error: delErr });
                 }
               }
             } catch (delQueryErr) {
-              console.error("Failed to query/delete stale connection rows for", connId, delQueryErr);
+              console.error('[NotificarIncidente] Error al consultar/eliminar conexiones obsoletas', connId, delQueryErr);
             }
           } else {
             // para errores transitarios (429, 500, etc.) dejamos que SQS reintente el mensaje si así está configurado
@@ -157,9 +158,8 @@ export const handler = async (event: SQSEvent) => {
         }
       }
     } catch (e) {
-      console.error("notifyIncidents worker record error:", e, "record:", { messageId: record.messageId, body: record.body?.slice?.(0, 1000) });
-      // no throw -> permitir reintentos automáticos de SQS (si quieres, re-throw para que SQS reintente)
+      console.error('[NotificarIncidente] Error procesando record:', e);
     }
   }
-  console.log("notifyIncidents processing finished.");
+  console.log('[NotificarIncidente] Procesamiento finalizado');
 };

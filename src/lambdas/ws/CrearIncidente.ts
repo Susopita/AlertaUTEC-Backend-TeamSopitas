@@ -47,29 +47,27 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   };
 
   try {
-    // ----- 2. Autenticación (¡LA PARTE CORREGIDA!) -----
+    // ----- 2. Autenticación -----
+    console.log('[CrearIncidente] Lambda invocada');
     console.log(`[crearIncidente] Verificando conexión: ${connectionId}`);
     let authData;
     try {
-      // Usamos la función compartida
       authData = await verifyConnection(connectionId);
     } catch (authError: any) {
-      console.warn(`[crearIncidente] Fallo de autenticación: ${authError.message}`);
+      console.warn(`[CrearIncidente] Fallo de autenticación: ${authError.message}`);
       return await sendWsError(authError.message, 401);
     }
 
     console.log(`[crearIncidente] Autorización exitosa para: ${authData.userId}, Rol: ${authData.roles}`);
 
-    // ----- 3. Lógica de Negocio (Tu código original) -----
-
-    // Verificación de Rol (como en tu código original)
+    // ----- 3. Lógica de Negocio -----
     if ((authData.roles ?? "") !== "estudiante") {
-      console.warn(`[crearIncidente] Fallo de autorización: rol '${authData.roles}' no es 'estudiante'.`);
+      console.warn('[CrearIncidente] No autorizado: rol debe ser estudiante');
       return await sendWsError("No autorizado: rol debe ser estudiante", 403);
     }
 
     if (!event.body) {
-      console.warn("[crearIncidente] Fallo de validación: Body vacío.");
+      console.warn('[CrearIncidente] Body vacío');
       return await sendWsError("Body vacío", 400);
     }
     const body = JSON.parse(event.body);
@@ -77,13 +75,14 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     // validaciones básicas
     if (!body.descripcion || !body.categoria) {
-      console.warn("[crearIncidente] Fallo de validación: Faltan descripcion o categoria.");
+      console.warn('[CrearIncidente] Faltan campos obligatorios: descripcion o categoria');
       return await sendWsError("Faltan campos obligatorios: descripcion o categoria", 400);
     }
 
     const urg = normalizeUrgencia(body.urgencia || body.prioridad || body.prioridadNivel);
     if (!urg) {
-      return { statusCode: 400, body: JSON.stringify({ message: "Campo 'urgencia' inválido. Debe ser: alto, medio o bajo" }) };
+      console.warn("[CrearIncidente] Campo 'urgencia' inválido");
+      return await sendWsError("Campo 'urgencia' inválido. Debe ser: alto, medio o bajo", 400);
     }
 
     let IndexPrioridad: number;

@@ -61,8 +61,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   console.log("actualizarIncidente - inicio", { path: event.path, method: event.httpMethod, requestId: (event as any).requestContext?.requestId });
 
   try {
+    console.log('[ActualizarIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
-      console.error("Falta configuración: INCIDENTS_TABLE");
+      console.error('[ActualizarIncidente] Falta configuración: INCIDENTS_TABLE');
       return { statusCode: 500, body: JSON.stringify({ message: "Error interno: configuración" }) };
     }
 
@@ -70,12 +71,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     console.log("actualizarIncidente - usuario extraído", { userId: user.userId, role: user.role });
 
     if (!user.userId) {
-      console.warn("actualizarIncidente - token faltante o inválido");
+      console.warn('[ActualizarIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
 
     if (!event.body) {
-      console.warn("actualizarIncidente - body vacío");
+      console.warn('[ActualizarIncidente] Body vacío');
       return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
     }
 
@@ -88,7 +89,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const incidenciaId = body.incidenciaId || body.incidentId || body.id;
     const updates = body.updates;
     if (!incidenciaId || !updates || typeof updates !== "object") {
-      console.warn("actualizarIncidente - missing incidenciaId or invalid updates");
+      console.warn('[ActualizarIncidente] Faltan incidenciaId o updates válidos');
       return { statusCode: 400, body: JSON.stringify({ message: "Faltan incidenciaId o updates válidos" }) };
     }
 

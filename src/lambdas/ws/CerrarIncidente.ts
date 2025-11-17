@@ -8,6 +8,7 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
   try {
+    console.log('[CerrarIncidente] Lambda invocada');
     const connectionId = event.requestContext.connectionId;
     const domain = event.requestContext.domainName;
     const stage = event.requestContext.stage;
@@ -22,6 +23,7 @@ export const handler = async (event: any) => {
 
     // Validar campos requeridos
     if (!incidenciaId || !token) {
+      console.warn('[CerrarIncidente] Faltan campos: incidenciaId, token');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Faltan campos: incidenciaId, token" })
@@ -32,6 +34,7 @@ export const handler = async (event: any) => {
     // Verificar JWT
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
+      console.error('[CerrarIncidente] Falta configuración: JWT_SECRET');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
@@ -43,6 +46,7 @@ export const handler = async (event: any) => {
     try {
       decoded = jwt.verify(token, jwtSecret);
     } catch (err) {
+      console.warn('[CerrarIncidente] Token inválido');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Token inválido" })
@@ -52,6 +56,7 @@ export const handler = async (event: any) => {
 
     // Verificar que el usuario sea admin
     if (decoded.rol !== "admin") {
+      console.warn('[CerrarIncidente] Solo administradores pueden cerrar incidentes');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Solo administradores pueden cerrar incidentes" })
@@ -61,6 +66,7 @@ export const handler = async (event: any) => {
 
     const tableName = process.env.INCIDENTS_TABLE;
     if (!tableName) {
+      console.error('[CerrarIncidente] Falta configuración: INCIDENTS_TABLE');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })

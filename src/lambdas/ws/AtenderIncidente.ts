@@ -56,8 +56,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   console.log("Body recibido:", event.body);
 
   try {
+    console.log('[AtenderIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
-      console.error("Falta configuración: INCIDENTS_TABLE");
+      console.error('[AtenderIncidente] Falta configuración: INCIDENTS_TABLE');
       return { statusCode: 500, body: JSON.stringify({ message: "Error interno: configuración" }) };
     }
 
@@ -65,19 +66,19 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     console.log("Usuario autenticado:", user);
 
     if (!user.userId) {
-      console.warn("Token inválido o faltante");
+      console.warn('[AtenderIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
 
     const role = (user.role || "").toString().toLowerCase();
     console.log("Rol detectado:", role);
     if (!["admin", "autoridad"].includes(role)) {
-      console.warn("Intento de atender por rol no autorizado:", role);
+      console.warn('[AtenderIncidente] No autorizado: rol insuficiente');
       return { statusCode: 403, body: JSON.stringify({ message: "No autorizado: rol insuficiente" }) };
     }
 
     if (!event.body) {
-      console.warn("Body vacío");
+      console.warn('[AtenderIncidente] Body vacío');
       return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
     }
 
@@ -86,7 +87,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     const incidenciaId = body.incidenciaId || body.incidentId || body.id;
     if (!incidenciaId) {
-      console.warn("incidenciaId faltante en body");
+      console.warn('[AtenderIncidente] Falta incidenciaId');
       return { statusCode: 400, body: JSON.stringify({ message: "Falta incidenciaId" }) };
     }
 
@@ -101,7 +102,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     console.log("Resultado GetCommand:", getResp);
 
     if (!getResp.Item) {
-      console.warn("Incidente no encontrado:", incidenciaId);
+      console.warn('[AtenderIncidente] Incidente no encontrado');
       return { statusCode: 404, body: JSON.stringify({ message: "Incidente no encontrado" }) };
     }
 

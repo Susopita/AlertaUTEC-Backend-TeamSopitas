@@ -14,13 +14,17 @@ export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
     try {
+        console.log('[Register] Lambda invocada');
         if (!event.body) {
+            console.warn('[Register] Body vacío');
             return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ message: "Body vacío" }) };
         }
 
         const { codigo, nombre, correo, password } = JSON.parse(event.body);
+        console.log(`[Register] Datos recibidos: codigo=${codigo}, nombre=${nombre}, correo=${correo}`);
 
         if (!codigo || !nombre || !correo || !password) {
+            console.warn('[Register] Faltan campos obligatorios');
             return {
                 statusCode: 400,
                 headers: jsonHeaders,
@@ -29,6 +33,7 @@ export const handler = async (
         }
 
         if (String(password).length < 8) {
+            console.warn('[Register] Password menor a 8 caracteres');
             return {
                 statusCode: 400,
                 headers: jsonHeaders,
@@ -38,6 +43,7 @@ export const handler = async (
 
         const tableName = process.env.DB_NAME;
         if (!tableName) {
+            console.error('[Register] Falta configuración: DB_NAME');
             return { statusCode: 500, headers: jsonHeaders, body: JSON.stringify({ message: "Falta configuración: DB_NAME" }) };
         }
 
@@ -52,6 +58,7 @@ export const handler = async (
             })
         );
         if ((byCorreo.Items?.length ?? 0) > 0) {
+            console.warn('[Register] Correo ya registrado');
             return { statusCode: 409, headers: jsonHeaders, body: JSON.stringify({ message: "Correo ya registrado" }) };
         }
 
@@ -65,12 +72,14 @@ export const handler = async (
             })
         );
         if ((byCodigo.Items?.length ?? 0) > 0) {
+            console.warn('[Register] Código ya registrado');
             return { statusCode: 409, headers: jsonHeaders, body: JSON.stringify({ message: "Código ya registrado" }) };
         }
 
         // Generar usuario
         const userId = uuid();
         const passwordHash = await bcrypt.hash(String(password), 10);
+        console.log(`[Register] Usuario generado: userId=${userId}`);
 
         const newUserItem = {
             userId: { S: userId },
@@ -89,6 +98,7 @@ export const handler = async (
                 Item: newUserItem
             })
         );
+        console.log('[Register] Usuario guardado en DynamoDB');
 
         // Emitir evento a EventBridge usando el servicio
         await eventBridgeService.publishUsuarioCreado({
@@ -99,6 +109,7 @@ export const handler = async (
             rol: "estudiante",
             area: "estudiante"
         });
+        console.log('[Register] Evento UsuarioCreado emitido a EventBridge');
 
         return {
             statusCode: 201,
@@ -106,6 +117,7 @@ export const handler = async (
             body: JSON.stringify({ message: "Usuario creado", userId })
         };
     } catch (err: any) {
+        console.error('[Register] Error interno:', err);
         return {
             statusCode: 500,
             headers: jsonHeaders,

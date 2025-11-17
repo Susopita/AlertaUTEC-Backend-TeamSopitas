@@ -12,11 +12,12 @@ export const handler = async (
     event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
 
+    console.log('[Authenticate] Lambda invocada');
     console.log("[Auth] Iniciando autenticación para conexión:", event.requestContext.connectionId);
 
     const connectionId = event.requestContext.connectionId;
     if (!connectionId) {
-        console.error("[Auth] Error: connectionId no encontrado en el evento.");
+        console.warn('[Authenticate] ID de conexión no encontrado');
         return { statusCode: 400, body: "ID de conexión no encontrado" };
     }
 
@@ -24,7 +25,7 @@ export const handler = async (
     const token = body.token; // El JWT que envió el cliente
 
     if (!token) {
-        console.warn(`[Auth] Fallo para ${connectionId}: Falta el 'token' en el body.`);
+        console.warn('[Authenticate] Falta el token en el body');
         return { statusCode: 400, body: "Falta el 'token' en el body" };
     }
 
@@ -41,7 +42,7 @@ export const handler = async (
         const expiration = payload.exp; // El timestamp de expiración del token
 
         if (!userId || !roles || !expiration) {
-            console.warn(`[Auth] Token inválido para ${connectionId}: faltan datos (sub, rol, o exp).`);
+            console.warn('[Authenticate] Token inválido (faltan datos)');
             return { statusCode: 400, body: "Token inválido (faltan datos)" };
         }
 
@@ -66,6 +67,7 @@ export const handler = async (
                 ":exp": expiration // Guardamos el timestamp de expiración
             }
         }));
+        console.log(`[Authenticate] Usuario autenticado: ${userId}`);
 
         console.log(`[Auth] DynamoDB actualizado para ${connectionId}. Enviando 'auth-success'.`);
 
@@ -84,7 +86,7 @@ export const handler = async (
 
     } catch (err) {
         // Si jwt.verify falla (token expirado, firma inválida), entra aquí
-        console.error(`[Auth] Fallo en la autenticación para ${connectionId}:`, err);
+        console.error('[Authenticate] Token inválido o expirado:', err);
         return { statusCode: 401, body: "Token inválido o expirado" };
     }
 };

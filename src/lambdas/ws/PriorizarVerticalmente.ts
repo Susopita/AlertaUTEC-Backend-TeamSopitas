@@ -7,6 +7,7 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
   try {
+    console.log('[PriorizarVerticalmente] Lambda invocada');
     const connectionId = event.requestContext.connectionId;
     const domain = event.requestContext.domainName;
     const stage = event.requestContext.stage;
@@ -21,6 +22,7 @@ export const handler = async (event: any) => {
 
     // Validar campos requeridos
     if (!incidenciaId || nuevoIndex === undefined || !token) {
+      console.warn('[PriorizarVerticalmente] Faltan campos: incidenciaId, nuevoIndex, token');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Faltan campos: incidenciaId, nuevoIndex, token" })
@@ -30,6 +32,7 @@ export const handler = async (event: any) => {
 
     // Validar que nuevoIndex sea un número positivo
     if (typeof nuevoIndex !== "number" || nuevoIndex < 0) {
+      console.warn('[PriorizarVerticalmente] nuevoIndex debe ser un número positivo');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "nuevoIndex debe ser un número positivo" })
@@ -40,6 +43,7 @@ export const handler = async (event: any) => {
     // Verificar JWT
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
+      console.error('[PriorizarVerticalmente] Falta configuración: JWT_SECRET');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
@@ -51,6 +55,7 @@ export const handler = async (event: any) => {
     try {
       decoded = jwt.verify(token, jwtSecret);
     } catch (err) {
+      console.warn('[PriorizarVerticalmente] Token inválido');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Token inválido" })
@@ -60,6 +65,7 @@ export const handler = async (event: any) => {
 
     // Verificar que el usuario sea admin
     if (decoded.rol !== "admin") {
+      console.warn('[PriorizarVerticalmente] Solo administradores pueden cambiar prioridad vertical');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Solo administradores pueden cambiar prioridad vertical" })
@@ -69,6 +75,7 @@ export const handler = async (event: any) => {
 
     const tableName = process.env.INCIDENTS_TABLE;
     if (!tableName) {
+      console.error('[PriorizarVerticalmente] Falta configuración: INCIDENTS_TABLE');
       await wsClient.postToConnection({
         ConnectionId: connectionId,
         Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })

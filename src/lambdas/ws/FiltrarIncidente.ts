@@ -7,6 +7,7 @@ const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
 	try {
+		console.log('[FiltrarIncidente] Lambda invocada');
 		const connectionId = event.requestContext?.connectionId;
 		const domain = event.requestContext?.domainName;
 		const stage = event.requestContext?.stage;
@@ -17,6 +18,7 @@ export const handler = async (event: any) => {
 
 		const tableName = process.env.INCIDENTS_TABLE;
 		if (!tableName) {
+			console.error('[FiltrarIncidente] Falta configuración: INCIDENTS_TABLE');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })
@@ -25,6 +27,7 @@ export const handler = async (event: any) => {
 		}
 
 		if (!event.body) {
+			console.warn('[FiltrarIncidente] Body vacío');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Body vacío" })
@@ -36,6 +39,7 @@ export const handler = async (event: any) => {
 		const { token, estado, ubicacion, prioridad, categoria } = body || {};
 
 		if (!token) {
+			console.warn('[FiltrarIncidente] Token no proporcionado');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Token no proporcionado" })
@@ -45,6 +49,7 @@ export const handler = async (event: any) => {
 
 		const jwtSecret = process.env.JWT_SECRET;
 		if (!jwtSecret) {
+			console.error('[FiltrarIncidente] Falta configuración: JWT_SECRET');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
@@ -56,6 +61,7 @@ export const handler = async (event: any) => {
 		try {
 			decoded = jwt.verify(token, jwtSecret);
 		} catch {
+			console.warn('[FiltrarIncidente] Token inválido');
 			await wsClient.postToConnection({
 				ConnectionId: connectionId,
 				Data: JSON.stringify({ action: "error", message: "Token inválido" })

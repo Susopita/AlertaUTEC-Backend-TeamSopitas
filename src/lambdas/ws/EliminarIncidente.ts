@@ -66,8 +66,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   });
 
   try {
+    console.log('[EliminarIncidente] Lambda invocada');
     if (!INCIDENTS_TABLE) {
-      console.error("INCIDENTS_TABLE no está configurado");
+      console.error('[EliminarIncidente] Falta configuración: INCIDENTS_TABLE');
       return { statusCode: 500, body: JSON.stringify({ message: "Error interno: configuración" }) };
     }
 
@@ -75,12 +76,12 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     console.log("Usuario identificado:", user);
 
     if (!user.userId) {
-      console.warn("Solicitud rechazada: usuario sin userId");
+      console.warn('[EliminarIncidente] No autorizado: token faltante o inválido');
       return { statusCode: 401, body: JSON.stringify({ message: "No autorizado: token faltante o inválido" }) };
     }
 
     if (!event.body) {
-      console.warn("Body vacío recibido");
+      console.warn('[EliminarIncidente] Body vacío');
       return { statusCode: 400, body: JSON.stringify({ message: "Body vacío" }) };
     }
 
@@ -90,7 +91,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     console.log("Incidencia solicitada a eliminar:", incidenciaId);
 
     if (!incidenciaId) {
-      console.warn("incidenciaId faltante");
+      console.warn('[EliminarIncidente] Falta incidenciaId');
       return { statusCode: 400, body: JSON.stringify({ message: "Falta incidenciaId" }) };
     }
 

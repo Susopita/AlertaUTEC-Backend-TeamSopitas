@@ -6,6 +6,7 @@ const db = new DynamoDBClient({});
 const TABLE_NAME = process.env.DB_CONEXIONES!;
 
 export const handler = async (event: APIGatewayProxyEvent) => {
+    console.log('[Disconnect] Lambda invocada');
     const connectionId = event.requestContext.connectionId!;
 
     try {
@@ -17,7 +18,7 @@ export const handler = async (event: APIGatewayProxyEvent) => {
         }));
 
         if (!queryResult.Items || queryResult.Items.length === 0) {
-            console.log(`Nada que limpiar para la conexión: ${connectionId}`);
+            console.log('[Disconnect] Nada que limpiar para', connectionId);
             return { statusCode: 200, body: "Nada que limpiar" };
         }
 
@@ -39,11 +40,10 @@ export const handler = async (event: APIGatewayProxyEvent) => {
             }
         }));
 
-        console.log(`Desconectado y limpiado exitosamente: ${connectionId}`);
+        console.log(`[Disconnect] Conexión y suscripciones eliminadas: ${connectionId}`);
         return { statusCode: 200, body: "Desconectado y limpiado" };
     } catch (err) {
-        console.error("Error al desconectar:", err);
-        console.error(`Error al desconectar ${connectionId}:`, err);
+        console.error('[Disconnect] Error al desconectar:', err);
         return { statusCode: 200, body: "Error en limpieza" };
     }
 };

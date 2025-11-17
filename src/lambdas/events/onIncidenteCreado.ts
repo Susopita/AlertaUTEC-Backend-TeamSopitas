@@ -14,14 +14,15 @@ const ddb = DynamoDBDocumentClient.from(ddbClient);
  */
 export const handler = async (event: EventBridgeEvent<string, IncidenteCreadoEvent>) => {
     try {
-        console.log('Evento IncidenteCreado recibido:', JSON.stringify(event, null, 2));
+        console.log('[onIncidenteCreado] Lambda invocada');
+        console.log('[onIncidenteCreado] Evento recibido:', JSON.stringify(event.detail));
 
         const incidente = event.detail;
         const DB_CONEXIONES = process.env.DB_CONEXIONES!;
         const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 
         if (!WEBSOCKET_ENDPOINT) {
-            console.warn('WEBSOCKET_ENDPOINT no configurado, saltando notificación WebSocket');
+            console.warn('[onIncidenteCreado] WEBSOCKET_ENDPOINT no configurado, saltando notificación WebSocket');
             return { statusCode: 200, body: 'Sin endpoint WebSocket' };
         }
 
@@ -38,7 +39,7 @@ export const handler = async (event: EventBridgeEvent<string, IncidenteCreadoEve
         );
 
         const conexiones = result.Items || [];
-        console.log(`Notificando a ${conexiones.length} conexiones activas`);
+        console.log(`[onIncidenteCreado] Notificando a ${conexiones.length} conexiones activas`);
 
         // Cliente WebSocket API Gateway
         const apiGateway = new ApiGatewayManagementApiClient({
@@ -60,13 +61,13 @@ export const handler = async (event: EventBridgeEvent<string, IncidenteCreadoEve
                         Data: Buffer.from(JSON.stringify(mensaje))
                     })
                 );
-                console.log(`Notificación enviada a conexión: ${conn.connectionId}`);
+                console.log(`[onIncidenteCreado] Notificación enviada a conexión: ${conn.connectionId}`);
             } catch (error: any) {
                 if (error.statusCode === 410) {
-                    console.log(`Conexión obsoleta: ${conn.connectionId}`);
+                    console.log(`[onIncidenteCreado] Conexión obsoleta: ${conn.connectionId}`);
                     // TODO: Eliminar conexión de la tabla
                 } else {
-                    console.error(`Error notificando a ${conn.connectionId}:`, error);
+                    console.error(`[onIncidenteCreado] Error notificando a ${conn.connectionId}:`, error);
                 }
             }
         });
@@ -78,7 +79,7 @@ export const handler = async (event: EventBridgeEvent<string, IncidenteCreadoEve
             body: JSON.stringify({ message: 'Notificaciones enviadas' })
         };
     } catch (error) {
-        console.error('Error procesando evento IncidenteCreado:', error);
+        console.error('[onIncidenteCreado] Error:', error);
         throw error;
     }
 };

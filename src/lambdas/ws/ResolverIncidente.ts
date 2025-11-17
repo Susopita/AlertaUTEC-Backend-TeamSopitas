@@ -7,6 +7,7 @@ import { eventBridgeService } from "../../services/eventBridgeService.js";
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export const handler = async (event: any) => {
+    console.log('[ResolverIncidente] Lambda invocada');
     const connectionId = event.requestContext.connectionId;
     const domain = event.requestContext.domainName;
     const stage = event.requestContext.stage;
@@ -23,7 +24,9 @@ export const handler = async (event: any) => {
         try {
             // Verificamos la conexión usando nuestro módulo compartido
             authData = await verifyConnection(connectionId);
+            console.log('[ResolverIncidente] Usuario autenticado:', authData.userId);
         } catch (authError: any) {
+            console.warn('[ResolverIncidente] Error autenticando conexión:', authError.message);
             await wsClient.postToConnection({
                 ConnectionId: connectionId,
                 Data: JSON.stringify({ action: "error", message: authError.message })
@@ -34,9 +37,8 @@ export const handler = async (event: any) => {
         // ====================================================================
         // PASO 2: VERIFICAR EL ROL (AUTORIZACIÓN)
         // ====================================================================
-        // Tu código buscaba "admin". Si 'autoridad' es el rol, cámbialo aquí.
-        // authData.roles viene del 'metadata' de DynamoDB.
         if (authData.roles !== "admin" && authData.roles !== "autoridad") {
+            console.warn('[ResolverIncidente] Acceso denegado: Se requiere rol de autoridad/admin');
             await wsClient.postToConnection({
                 ConnectionId: connectionId,
                 Data: JSON.stringify({ action: "error", message: "Acceso denegado: Se requiere rol de autoridad/admin" })
@@ -49,12 +51,12 @@ export const handler = async (event: any) => {
         // ====================================================================
 
         // Parsear el body del mensaje WebSocket
-        // ❌ Ya no necesitamos el token
         const body = JSON.parse(event.body);
         const { incidenciaId } = body;
 
         // Validar campos requeridos
         if (!incidenciaId) {
+            console.warn('[ResolverIncidente] Falta campo: incidenciaId');
             await wsClient.postToConnection({
                 ConnectionId: connectionId,
                 Data: JSON.stringify({ action: "error", message: "Falta campo: incidenciaId" })
@@ -62,11 +64,9 @@ export const handler = async (event: any) => {
             return { statusCode: 400 };
         }
 
-        // ❌ Se borró toda la verificación manual de JWT (líneas 30-60)
-
         const tableName = process.env.INCIDENTS_TABLE;
         if (!tableName) {
-            // ... (error de configuración)
+            console.error('[ResolverIncidente] Falta configuración: INCIDENTS_TABLE');
             return { statusCode: 500 };
         }
 
@@ -79,7 +79,7 @@ export const handler = async (event: any) => {
         );
 
         if (!getResult.Item) {
-            // ... (error de incidencia no encontrada)
+            console.warn('[ResolverIncidente] Incidencia no encontrada');
             return { statusCode: 404 };
         }
 
@@ -92,7 +92,7 @@ export const handler = async (event: any) => {
                 ExpressionAttributeValues: {
                     ":estado": "resuelto",
                     ":fecha": new Date().toISOString(),
-                    ":autoridadId": authData.userId // 👈 Usamos el ID verificado
+                    ":autoridadId": authData.userId
                 }
             })
         );
