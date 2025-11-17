@@ -129,6 +129,24 @@ functions:
       - websocket:
           route: filtrarIncidencias
 
+  atenderIncidente:
+    handler: src/lambdas/ws/AtenderIncidente.handler
+    events:
+      - websocket:
+          route: atenderIncidente
+
+  eliminarIncidente:
+    handler: src/lambdas/ws/EliminarIncidente.handler
+    events:
+      - websocket:
+          route: eliminarIncidente
+
+  incidenteResuelto:
+    handler: src/lambdas/ws/IncidenteResuelto.handler
+    events:
+      - websocket:
+          route: incidenteResuelto
+
   # ==================== LAMBDAS PROCESADORAS DE QUEUES ====================
   
   # Lambda que procesa Queue Incidentes (notificaciones WebSocket)
@@ -150,6 +168,43 @@ functions:
           arn: !GetAtt QueueOrquestacion.Arn
           batchSize: 1 # 👈 CAMBIA ESTO A 1
           maximumBatchingWindow: 0 # 👈 CAMBIA ESTO A 0
+
+  # ==================== LAMBDAS DE EVENTOS ====================
+
+  onIncidenteCreado:
+    handler: src/lambdas/events/onIncidenteCreado.handler
+    environment:
+      WEBSOCKET_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+
+  onIncidentePriorizado:
+    handler: src/lambdas/events/onIncidentePriorizado.handler
+    environment:
+      WEBSOCKET_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+
+  onIncidenteResuelto:
+    handler: src/lambdas/events/onIncidenteResuelto.handler
+    environment:
+      WEBSOCKET_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+
+  onUsuarioCreado:
+    handler: src/lambdas/events/onUsuarioCreado.handler
+
+  # ==================== LAMBDAS DE ADMIN ====================
+
+  crearAdmins:
+    handler: src/lambdas/admin/CrearAdmins.handler
+
+  crearAutoridad:
+    handler: src/lambdas/admin/CrearAutoridad.handler
+
+  # ==================== LAMBDAS UTILITARIAS ====================
+
+  obtenerReporte:
+    handler: src/lambdas/ObtenerReporte.handler
+    events:
+      - httpApi:
+          path: /reportes
+          method: get
 
 
 
