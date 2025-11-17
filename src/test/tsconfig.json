@@ -1,0 +1,14 @@
+{
+    // 1. Hereda toda tu configuración principal
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        // 2. Sobrescribe el 'module' SÓLO para esta carpeta
+        // Le dice al editor que esta carpeta es CommonJS (como tu Jest config)
+        "module": "CommonJS",
+        "moduleResolution": "node",
+    },
+    // 3. Incluye todos los archivos de esta carpeta
+    "include": [
+        "**/*.ts"
+    ]
+}

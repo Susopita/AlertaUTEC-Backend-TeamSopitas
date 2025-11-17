@@ -1,165 +1,167 @@
 import { SQSEvent } from "aws-lambda";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { BatchWriteItemCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   QueryCommand,
-  DeleteCommand,
-  ScanCommand
+  DeleteCommand
 } from "@aws-sdk/lib-dynamodb";
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
 
 /**
- * Worker independiente que:
- * - recorre cada mensaje SQS (body debe contener subscriptionKey, eventType y payload)
- * - consulta la tabla WSConnections por GSI-subscriptionKey
- * - envía via ApiGatewayManagementApi a cada connectionId
+ * Worker (Notificador) que:
+ * - Lee un mensaje de SQS.
+ * - El body del mensaje DEBE contener "viewId", "eventType" y "payload".
+ * - Consulta el GSI "view-index" de la tabla de conexiones.
+ * - Envía una notificación a todas las conexiones suscritas.
  *
  * Variables de entorno:
- * - WS_TABLE
- * - WS_API_ENDPOINT (p.ej. https://{api-id}.execute-api.{region}.amazonaws.com/{stage})
+ * - DB_CONEXIONES (Nombre de la tabla de conexiones)
+ * - WEBSOCKET_ENDPOINT (El endpoint de la API, ej: https://{api-id}.execute-api.../{stage})
  */
 
+// --- Configuración Simplificada ---
+// AWS_REGION es inyectado automáticamente por Lambda
 const REGION = process.env.AWS_REGION || "us-east-1";
-const WS_TABLE = process.env.WS_TABLE!; // tabla de conexiones/suscripciones
-const WS_API_ENDPOINT = process.env.WS_API_ENDPOINT!; // https://{api-id}.execute-api.{region}.amazonaws.com/{stage}
-const GSI_NAME_VIEWID = process.env.WS_GSI_VIEWID || "GSI-viewId"; // opcional
-const GSI_NAME_SUBKEY = process.env.WS_GSI_SUBKEY || "GSI-subscriptionKey"; // opcional
+const WS_TABLE = process.env.DB_CONEXIONES!;
+// Corregido para coincidir con tu serverless.yml
+const WS_API_ENDPOINT = process.env.WS_API_ENDPOINT!;
+// Nombre real de tu GSI en serverless.yml
+const GSI_NAME = "view-index";
 
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddb = DynamoDBDocumentClient.from(ddbClient);
-
 const apigw = new ApiGatewayManagementApiClient({ endpoint: WS_API_ENDPOINT });
 
 /**
  * Estructura esperada de cada mensaje SQS:
  * {
- *   "subscriptionKey": "role#admin" | "view#incident:123"  (preferido)
- *   "viewId": "view#incident:123"                        (compatibilidad con tus lambdas)
- *   "eventType": "IncidenteCreado" | "IncidenteEnAtencion" | ...,
- *   "payload": { ... }  // objeto con todos los campos del incidente
+ * "viewId": "view#incident:123",
+ * "eventType": "IncidenteCreado",
+ * "payload": { ... }
  * }
  */
 export const handler = async (event: SQSEvent) => {
-  console.log('[NotificarIncidente] Lambda invocada');
-  console.log("notifyIncidents invoked. Records:", event.Records.length);
+  console.log(`[Notificador] Lambda invocada. ${event.Records.length} records.`);
+
   for (const [idx, record] of event.Records.entries()) {
-    console.log(`[NotificarIncidente] Procesando record ${idx + 1}/${event.Records.length} messageId=${record.messageId}`);
+    console.log(`[Notificador] Procesando record ${idx + 1}/${event.Records.length} (ID: ${record.messageId})`);
+
     try {
       const body = JSON.parse(record.body || "{}");
       console.debug("Parsed SQS body:", body);
 
-      const subscriptionKey: string | undefined = body.subscriptionKey || body.subKey;
+      // --- Lógica de Búsqueda Simplificada ---
       const viewId: string | undefined = body.viewId;
-      const eventType: string = body.eventType || "notification";
+      const eventType: string = body.eventType || "notification"; // 'action' podría ser mejor
       const payload = body.payload ?? body.incident ?? null;
 
-      if (!subscriptionKey && !viewId) {
-        console.warn('[NotificarIncidente] Mensaje sin subscriptionKey ni viewId - se omite', { messageId: record.messageId });
+      if (!viewId) {
+        console.warn(`[Notificador] Mensaje sin 'viewId'. Se omite. (ID: ${record.messageId})`);
         continue;
       }
+      // ----------------------------------------
 
-      // decidir qué atributo usar para query (compatibilidad)
-      const lookupKey = subscriptionKey ? { name: "subscriptionKey", value: subscriptionKey } : { name: "viewId", value: viewId! };
-      console.log("Lookup key seleccionada:", lookupKey);
+      console.log(`[Notificador] Buscando conexiones para viewId: ${viewId}`);
 
-      let queryResult;
-      // Intentar usar GSI apropiado si existe (más eficiente que scan)
-      try {
-        const indexName = lookupKey.name === "subscriptionKey" ? GSI_NAME_SUBKEY : GSI_NAME_VIEWID;
-        console.log(`Ejecutando Query en ${WS_TABLE} usando index ${indexName} para ${lookupKey.name}=${lookupKey.value}`);
-        queryResult = await ddb.send(new QueryCommand({
-          TableName: WS_TABLE,
-          IndexName: indexName,
-          KeyConditionExpression: `${lookupKey.name} = :k`,
-          ExpressionAttributeValues: { ":k": lookupKey.value },
-          ProjectionExpression: "connectionId, viewId"
-        }));
-        console.log("Query result count:", (queryResult.Items || []).length);
-      } catch (qerr) {
-        // Si el Query falla (p. ej. GSI no existe), hacemos un SCAN con filtro (menos eficiente)
-        console.warn("Query GSI falló o GSI no existe, usando Scan como fallback", { error: (qerr as any)?.message ?? String(qerr), indexTried: lookupKey.name });
-        const scanResp = await ddb.send(new ScanCommand({
-          TableName: WS_TABLE,
-          FilterExpression: `${lookupKey.name} = :k`,
-          ExpressionAttributeValues: { ":k": lookupKey.value },
-          ProjectionExpression: "connectionId, viewId"
-        }));
-        queryResult = scanResp;
-        console.log("Scan result count:", (scanResp.Items || []).length);
-      }
+      // Consulta el GSI para encontrar todas las conexiones suscritas
+      const queryResult = await ddb.send(new QueryCommand({
+        TableName: WS_TABLE,
+        IndexName: GSI_NAME, // <-- Nombre hardcodeado y correcto
+        KeyConditionExpression: `viewId = :v`,
+        ExpressionAttributeValues: { ":v": viewId },
+        ProjectionExpression: "connectionId" // Solo necesitamos el ID de conexión
+      }));
 
       const connections = queryResult.Items || [];
-      console.log(`[NotificarIncidente] Conexiones a notificar: ${connections.length} for key=${lookupKey.value}`);
-
-      if (!connections.length) {
-        console.info("notifyIncidents: no hay conexiones para key", lookupKey.value);
+      if (connections.length === 0) {
+        console.log(`[Notificador] No hay conexiones activas para ${viewId}.`);
         continue;
       }
 
-      // Preparar el mensaje que llegará al front
+      console.log(`[Notificador] ${connections.length} conexiones encontradas. Iniciando fan-out...`);
+
+      // Prepara el mensaje que llegará al front
+      // (Usamos 'action' para ser consistentes con tus otras respuestas)
       const message = JSON.stringify({
-        type: eventType,
-        data: payload
+        action: eventType, // ej: "IncidenteCreado"
+        payload: payload
       });
       const encoded = new TextEncoder().encode(message);
-      console.debug("Mensaje a enviar (truncado):", message?.slice?.(0, 500));
 
-      // Enviar a cada connectionId
-      for (const [iConn, conn] of connections.entries()) {
-        const connId = (conn as any).connectionId;
-        const connView = (conn as any).viewId;
-        if (!connId) {
-          console.warn("Fila de conexión sin connectionId, saltando", conn);
-          continue;
-        }
+      // Enviar a cada connectionId en paralelo
+      const postPromises = connections.map(async (conn) => {
+        const connId = conn.connectionId;
+        if (!connId) return;
 
-        console.log(`Enviando mensaje a connection ${iConn + 1}/${connections.length} connectionId=${connId} viewId=${connView}`);
         try {
           await apigw.send(new PostToConnectionCommand({
             ConnectionId: connId,
             Data: encoded
           }));
-          console.log(`[NotificarIncidente] Notificado: ${connId}`);
+          console.log(`[Notificador] Notificado: ${connId}`);
         } catch (err: any) {
           const status = err?.$metadata?.httpStatusCode;
-          console.warn(`[NotificarIncidente] Falló notificación para ${connId} status=${status}`, err?.message);
-          // Si la conexión está muerta (410) o acceso denegado (403), borrar las filas asociadas a esa connectionId
+          console.warn(`[Notificador] Falló notificación para ${connId} (Status: ${status})`, err.message);
+
+          // --- Lógica de Autolimpieza (Backup de $disconnect) ---
           if (status === 410 || status === 403) {
-            console.info("Detectada conexión inválida, limpiando filas asociadas", { connectionId: connId, status });
-            try {
-              // buscar todas las filas de esa connectionId (la tabla usa PK connectionId, SK viewId)
-              const connRows = await ddb.send(new QueryCommand({
-                TableName: WS_TABLE,
-                KeyConditionExpression: "connectionId = :c",
-                ExpressionAttributeValues: { ":c": connId },
-                ProjectionExpression: "connectionId, viewId"
-              }));
-              const items = connRows.Items || [];
-              console.log(`[NotificarIncidente] Filas encontradas para cleanup: ${items.length}`);
-              for (const it of items) {
-                const view = (it as any).viewId;
-                try {
-                  await ddb.send(new DeleteCommand({
-                    TableName: WS_TABLE,
-                    Key: { connectionId: connId, viewId: view }
-                  }));
-                  console.log(`[NotificarIncidente] Conexión obsoleta eliminada: ${connId}, viewId: ${view}`);
-                } catch (delErr) {
-                  console.error('[NotificarIncidente] Error eliminando conexión obsoleta', { connectionId: connId, viewId: view, error: delErr });
-                }
-              }
-            } catch (delQueryErr) {
-              console.error('[NotificarIncidente] Error al consultar/eliminar conexiones obsoletas', connId, delQueryErr);
-            }
-          } else {
-            // para errores transitarios (429, 500, etc.) dejamos que SQS reintente el mensaje si así está configurado
-            console.warn("Error al postear a connectionId (no se eliminará), permitirá reintento si aplica:", { connectionId: connId, status, message: err?.message });
+            console.log(`[Notificador] Conexión muerta detectada: ${connId}. Limpiando...`);
+            await cleanUpStaleConnection(connId);
           }
+          // ----------------------------------------------------
         }
-      }
-    } catch (e) {
-      console.error('[NotificarIncidente] Error procesando record:', e);
+      });
+
+      await Promise.all(postPromises);
+
+    } catch (e: any) {
+      console.error(`[Notificador] Error fatal procesando record (ID: ${record.messageId}):`, e);
+      // Dejamos que SQS reintente el mensaje si es un error de parseo o similar
+      throw e;
     }
   }
-  console.log('[NotificarIncidente] Procesamiento finalizado');
+  console.log('[Notificador] Procesamiento finalizado.');
 };
+
+/**
+ * Función de autolimpieza: Borra todos los registros (metadata y vistas)
+ * asociados a un connectionId que se ha detectado como muerto.
+ */
+async function cleanUpStaleConnection(connectionId: string) {
+  try {
+    // 1. Encontrar todas las filas de esta conexión (PK = connectionId)
+    const queryResult = await ddb.send(new QueryCommand({
+      TableName: WS_TABLE,
+      KeyConditionExpression: "connectionId = :cid",
+      ExpressionAttributeValues: { ":cid": connectionId },
+      ProjectionExpression: "connectionId, viewId" // Solo necesitamos las claves
+    }));
+
+    const items = queryResult.Items || [];
+    if (items.length === 0) return;
+
+    console.log(`[Notificador-Cleanup] ${items.length} filas encontradas para ${connectionId}.`);
+
+    // 2. Crear una solicitud de borrado en lote (Batch)
+    const deleteRequests = items.map(item => ({
+      DeleteRequest: {
+        Key: {
+          connectionId: item.connectionId,
+          viewId: item.viewId
+        }
+      }
+    }));
+
+    // 3. Ejecutar el borrado en lote
+    await ddb.send(new BatchWriteItemCommand({
+      RequestItems: {
+        [WS_TABLE]: deleteRequests.slice(0, 25) // Limita a 25 por request
+      }
+    }));
+
+    console.log(`[Notificador-Cleanup] Conexión muerta ${connectionId} eliminada.`);
+
+  } catch (delErr) {
+    console.error(`[Notificador-Cleanup] Error al limpiar ${connectionId}:`, delErr);
+  }
+}

@@ -1,72 +1,118 @@
-import WebSocket from 'ws';
-import { getAuthToken } from './helpers/auth-helper.js'; // 👈 1. Importa el helper
-import { WEBSOCKET_URL } from './test-config.js';       // 👈 2. Importa la URL
+import { getAuthToken } from './helpers/auth-helper';
+import { WsTestClient } from './helpers/ws-test-client';
+import { WEBSOCKET_URL } from './test-config';
 
 // --- Credenciales del Usuario de Prueba ---
-// (Este usuario debe existir en tu base de datos de 'dev')
 const TEST_USER_EMAIL = 'tu-usuario-de-prueba@gmail.com';
 const TEST_USER_PASSWORD = 'Password123!';
+const VISTA_COMPARTIDA = "view#main_list"; // La vista que ambos escucharán
 
-// --- Variables Globales de la Prueba ---
-let ws: WebSocket;
-let validJwt: string; // Aquí guardaremos el token
+// --- Clientes ---
+let clientA: WsTestClient; // El "Listener" (Escucha)
+let clientB: WsTestClient; // El "Actor" (Crea el incidente)
+let validJwt: string;
 
 // -----------------------------------------------------------------
-// 💡 USA 'beforeAll' PARA LOGUEARTE UNA VEZ ANTES DE TODAS LAS PRUEBAS
+// 1. ANTES DE TODAS LAS PRUEBAS
 // -----------------------------------------------------------------
 beforeAll(async () => {
-    // 3. Llama a tu helper encapsulado para obtener el token
+    // 1. Obtener el JWT (solo 1 vez)
     validJwt = await getAuthToken(TEST_USER_EMAIL, TEST_USER_PASSWORD);
 
-    // Verificación rápida de que obtuvimos un token
-    expect(validJwt).toBeDefined();
-    expect(validJwt.length).toBeGreaterThan(50);
+    // 2. Crear los dos clientes
+    clientA = new WsTestClient(WEBSOCKET_URL);
+    clientB = new WsTestClient(WEBSOCKET_URL);
 
-    // 4. Ahora, con el token, conecta al WebSocket
-    ws = new WebSocket(WEBSOCKET_URL);
-    await new Promise<void>((resolve, reject) => {
-        ws.onopen = () => {
-            console.log("Conexión WS de prueba abierta.");
-            resolve();
-        };
-        ws.onerror = (err) => reject(err);
-    });
-});
+    // 3. Conectar ambos en paralelo
+    console.log("Conectando clientes A y B...");
+    await Promise.all([
+        clientA.connect(),
+        clientB.connect()
+    ]);
 
+    // 4. Autenticar ambos en paralelo
+    console.log("Autenticando clientes A y B...");
+    await Promise.all([
+        clientA.authenticate(validJwt),
+        clientB.authenticate(validJwt)
+    ]);
+
+    // 5. Suscribir ambos a la misma vista
+    console.log(`Suscribiendo clientes A y B a ${VISTA_COMPARTIDA}...`);
+    await Promise.all([
+        clientA.subscribe(VISTA_COMPARTIDA),
+        clientB.subscribe(VISTA_COMPARTIDA)
+    ]);
+
+    console.log("Setup completado. Ambos clientes listos.");
+}, 30000); // 30 segundos de timeout para todo el setup
+
+// -----------------------------------------------------------------
+// 2. DESPUÉS DE TODAS LAS PRUEBAS
+// -----------------------------------------------------------------
 afterAll(() => {
-    if (ws) ws.close();
+    if (clientA) clientA.close();
+    if (clientB) clientB.close();
+    console.log("Pruebas finalizadas. Clientes desconectados.");
 });
 
 // -----------------------------------------------------------------
-// TUS PRUEBAS DE WEBSOCKET
+// 3. LA PRUEBA PRINCIPAL
 // -----------------------------------------------------------------
-describe('Flujo de WebSocket (Autenticado)', () => {
+describe('Flujo de Creación y Notificación de Incidentes', () => {
 
-    test('debería autenticar la conexión WebSocket usando el JWT', async () => {
+    test('Cliente B crea un incidente y Cliente A recibe la notificación', async () => {
 
-        // Función para esperar la respuesta de 'auth-success'
-        const waitForAuth = new Promise((resolve, reject) => {
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data as string);
-                if (msg.action === 'auth-success') {
-                    resolve(msg);
-                }
-            };
-            setTimeout(() => reject(new Error("Timeout en 'authenticate'")), 5000);
+        // Datos del nuevo incidente
+        const incidenteDescripcion = `Incidente E2E - ${Date.now()}`;
+        const incidenteCategoria = "Prueba E2E";
+
+        // --------------------------------
+        // 1. PREPARAR LOS LISTENERS (¡La parte clave!)
+        // --------------------------------
+
+        // Cliente A (Listener) espera la notificación PROPAGADA.
+        // Esta viene de SQS, así que le damos un timeout largo.
+        // Asumo que tu Lambda 'procesarQueueIncidentes' envía "IncidenteCreado"
+        const promesaNotificacion = clientA.waitForMessage("IncidenteCreado", 15000);
+
+        // Cliente B (Actor) espera la respuesta DIRECTA de la Lambda 'crearIncidente'.
+        // Esto es rápido.
+        const promesaRespuestaDirecta = clientB.waitForMessage("crearIncidenteSuccess", 5000);
+
+        // --------------------------------
+        // 2. EJECUTAR LA ACCIÓN
+        // --------------------------------
+        console.log("Cliente B enviando 'crearIncidente'...");
+        clientB.send({
+            action: "crearIncidente",
+            descripcion: incidenteDescripcion,
+            categoria: incidenteCategoria,
+            urgencia: "bajo"
         });
 
-        // 5. Usa el token que obtuvimos en 'beforeAll'
-        ws.send(JSON.stringify({
-            action: "authenticate",
-            token: validJwt
-        }));
+        // --------------------------------
+        // 3. ESPERAR Y VERIFICAR (Las 2 cosas que pediste)
+        // --------------------------------
+        console.log("Esperando respuesta directa y notificación propagada...");
+        const [respuestaDirecta, notificacion] = await Promise.all([
+            promesaRespuestaDirecta,
+            promesaNotificacion
+        ]);
 
-        // Espera a que el servidor confirme la autenticación
-        const response: any = await waitForAuth;
-        expect(response.action).toBe("auth-success");
-    });
+        // Verificación 1: Cliente B (Actor) recibió éxito
+        console.log("Verificando respuesta directa (Cliente B)...");
+        expect(respuestaDirecta.action).toBe("crearIncidenteSuccess");
+        expect(respuestaDirecta.mensaje).toBe("Incidente creado");
+        expect(respuestaDirecta.incidenciaId).toBeDefined();
 
-    test('debería fallar al crear un incidente si no está autenticado', async () => {
-        // (Aquí probarías sin llamar a 'authenticate' primero)
+        // Verificación 2: Cliente A (Listener) recibió la propagación
+        console.log("Verificando notificación propagada (Cliente A)...");
+        expect(notificacion.action).toBe("IncidenteCreado");
+        expect(notificacion.payload.descripcion).toBe(incidenteDescripcion);
+
+        // ¡La prueba de oro!
+        expect(notificacion.payload.incidenciaId).toBe(respuestaDirecta.incidenciaId);
+        console.log("¡Éxito! Notificación propagada correctamente.");
     });
 });

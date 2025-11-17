@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { HTTP_API_URL } from './test-config.js';
+import { HTTP_API_URL } from './test-config';
 
 // Datos de prueba únicos para este test
 const testEmail = `test.user.${Date.now()}@example.com`;

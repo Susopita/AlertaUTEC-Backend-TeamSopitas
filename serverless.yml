@@ -51,12 +51,6 @@ functions:
           path: /login
           method: post
 
-  authenticate:
-    handler: src/lambdas/ws/authenticate.handler
-    events:
-      - websocket:
-          route: authenticate
-
   connect:
     handler: src/lambdas/ws/Connect.handler
     events:
@@ -74,6 +68,24 @@ functions:
     events:
       - websocket:
           route: $default
+  
+  authenticate:
+    handler: src/lambdas/ws/authenticate.handler
+    events:
+      - websocket:
+          route: authenticate
+
+  suscribe:
+    handler: src/lambdas/ws/Suscribe.handler
+    events:
+      - websocket:
+          route: suscribe
+  
+  unsuscribe:
+    handler: src/lambdas/ws/Unsuscribe.handler
+    events:
+      - websocket:
+          route: unsuscribe
 
   crearIncidente: 
     handler: src/lambdas/ws/CrearIncidente.handler
@@ -123,7 +135,7 @@ functions:
   procesarQueueIncidentes:
     handler: src/lambdas/queues/procesarQueueIncidentes.handler
     environment:
-      WEBSOCKET_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+      WS_API_ENDPOINT: !Sub "https://${WebsocketsApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
     events:
       - sqs:
           arn: !GetAtt QueueIncidentes.Arn

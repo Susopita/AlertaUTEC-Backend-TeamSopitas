@@ -19,7 +19,7 @@ export const handler = async (event: EventBridgeEvent<string, IncidenteCreadoEve
 
         const incidente = event.detail;
         const DB_CONEXIONES = process.env.DB_CONEXIONES!;
-        const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
+        const WEBSOCKET_ENDPOINT = process.env.WS_API_ENDPOINT;
 
         if (!WEBSOCKET_ENDPOINT) {
             console.warn('[onIncidenteCreado] WEBSOCKET_ENDPOINT no configurado, saltando notificación WebSocket');

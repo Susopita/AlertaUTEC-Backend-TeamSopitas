@@ -1,6 +1,6 @@
 // src/tests/helpers/auth-helper.ts
 import axios from 'axios';
-import { HTTP_API_URL } from '../test-config.js'; // Importamos la URL
+import { HTTP_API_URL } from '../test-config'; // Importamos la URL
 
 /**
  * Realiza una llamada de login y devuelve el JWT.
