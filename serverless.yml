@@ -51,6 +51,20 @@ functions:
           path: /login
           method: post
 
+  crearAdmin:
+    handler: src/lambdas/admin/CrearAdmins.handler
+    events:
+      - httpApi:
+          path: /admin/register
+          method: post
+
+  crearAutoridad:
+    handler: src/lambdas/admin/CrearAutoridad.handler
+    events:
+      - httpApi:
+          path: /autoridad/register
+          method: post
+
   authenticate:
     handler: src/lambdas/ws/authenticate.handler
     events:
