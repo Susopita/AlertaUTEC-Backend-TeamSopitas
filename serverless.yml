@@ -370,11 +370,41 @@ resources:
       Properties:
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
-          - AttributeName: incidenciaId
+          - AttributeName: incidenciaId # PK de la tabla
             AttributeType: S
+          - AttributeName: asignadoA # PK del GSI de Autoridad
+            AttributeType: S
+          - AttributeName: IndexPrioridad # SK del GSI de Autoridad
+            AttributeType: N # N de Número
+          - AttributeName: tipo # PK del GSI de Foro
+            AttributeType: S
+          - AttributeName: createdAt # SK del GSI de Foro
+            AttributeType: S
+            
         KeySchema:
           - AttributeName: incidenciaId
             KeyType: HASH
+
+        # GSI para Autoridad (Su "Cola de Trabajo" priorizada)
+        GlobalSecondaryIndexes:
+          - IndexName: asignadoA-prioridad-index
+            KeySchema:
+              - AttributeName: asignadoA # Filtra por área de autoridad
+                KeyType: HASH
+              - AttributeName: IndexPrioridad # Ordena por prioridad
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+          # GSI para Estudiante/Admin (El "Foro" cronológico)
+          - IndexName: tipo-fecha-index
+            KeySchema:
+              - AttributeName: tipo # Un valor estático (ej. "incidente")
+                KeyType: HASH
+              - AttributeName: createdAt # Ordena por fecha
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
 
     # ------------------------
     # Tabla DynamoDB Conexiones

@@ -97,8 +97,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const now = new Date().toISOString();
     const incidenciaId = uuidv4();
 
-    const item = {
+    const item: any = {
       incidenciaId,
+      tipo: "incidente",
       estado: "pendiente",
       urgencia: urg,
       IndexPrioridad,
@@ -106,11 +107,14 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       categoria: body.categoria,
       ubicacion: body.ubicacion || null,
       reportadoPor: authData.userId, // 👈 Usamos el ID verificado
-      asignadoA: body.asignadoA || null,
       createdAt: now,
       updatedAt: now,
       version: 1
     };
+
+    if (body.asignadoA) {
+      item.asignadoA = body.asignadoA;
+    }
 
     console.log("[crearIncidente] Creando item en DynamoDB:", JSON.stringify(item));
     await ddb.send(new PutCommand({ TableName: INCIDENTS_TABLE, Item: item }));

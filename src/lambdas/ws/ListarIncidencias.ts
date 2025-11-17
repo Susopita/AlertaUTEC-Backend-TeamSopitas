@@ -1,127 +1,102 @@
-import {DynamoDBClient} from "@aws-sdk/client-dynamodb";
-
-import {DynamoDBDocumentClient,ScanCommand} from "@aws-sdk/lib-dynamodb";
-
-import {ApiGatewayManagementApi} from "@aws-sdk/client-apigatewaymanagementapi";
-
-import * as jwt from "jsonwebtoken";
+// src/lambdas/ws/ListarIncidencias.ts
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { ApiGatewayManagementApi } from "@aws-sdk/client-apigatewaymanagementapi";
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { verifyConnection } from "../../utils/auth-check.js";
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const INCIDENTS_TABLE = process.env.INCIDENTS_TABLE!;
 
-export const handler = async (event: any) => {
+export const handler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+
+  console.log('[ListarIncidencias] Lambda invocada');
+  const connectionId = event.requestContext.connectionId!;
+  const domain = event.requestContext.domainName!;
+  const stage = event.requestContext.stage!;
+
+  const wsClient = new ApiGatewayManagementApi({
+    endpoint: `https://${domain}/${stage}`
+  });
+
+  const sendWsError = async (message: string, statusCode: number) => {
+    await wsClient.postToConnection({
+      ConnectionId: connectionId,
+      Data: JSON.stringify({ action: "error", message: message })
+    });
+    return { statusCode, body: JSON.stringify({ message }) };
+  };
 
   try {
-    console.log('[ListarIncidencias] Lambda invocada');
-    // Datos del WebSocket
-    const connectionId = event.requestContext.connectionId;
-    const domain = event.requestContext.domainName;
-    const stage = event.requestContext.stage;
-
-    // Cliente para enviar mensajes al WebSocket
-    const wsClient = new ApiGatewayManagementApi({
-      endpoint: `https://${domain}/${stage}`
-    });
-
-    const tableName = process.env.INCIDENTS_TABLE;
-    if (!tableName) {
-      console.error('[ListarIncidencias] Falta configuración: INCIDENTS_TABLE');
-      await wsClient.postToConnection({
-        ConnectionId: connectionId,
-        Data: JSON.stringify({ action: "error", message: "Falta configuración: INCIDENTS_TABLE" })
-      });
-      return { statusCode: 500 };
-    }
-
-    // Obtener token del query string o headers
-    const token = event.queryStringParameters?.token;
-    if (!token) {
-      console.warn('[ListarIncidencias] Token no proporcionado');
-      await wsClient.postToConnection({
-        ConnectionId: connectionId,
-        Data: JSON.stringify({ action: "error", message: "Token no proporcionado" })
-      });
-      return { statusCode: 401 };
-    }
-
-    // Decodificar JWT
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      console.error('[ListarIncidencias] Falta configuración: JWT_SECRET');
-      await wsClient.postToConnection({
-        ConnectionId: connectionId,
-        Data: JSON.stringify({ action: "error", message: "Falta configuración: JWT_SECRET" })
-      });
-      return { statusCode: 500 };
-    }
-
-    let decoded: any;
+    // ----- 1. Autenticación -----
+    console.log(`[ListarIncidencias] Verificando conexión: ${connectionId}`);
+    let authData;
     try {
-      decoded = jwt.verify(token, jwtSecret);
-    } catch (err) {
-      console.warn('[ListarIncidencias] Token inválido');
-      await wsClient.postToConnection({
-        ConnectionId: connectionId,
-        Data: JSON.stringify({ action: "error", message: "Token inválido" })
-      });
-      return { statusCode: 401 };
+      authData = await verifyConnection(connectionId);
+    } catch (authError: any) {
+      console.warn(`[ListarIncidencias] Fallo de autenticación: ${authError.message}`);
+      return await sendWsError(authError.message, 401);
     }
 
-    const { rol, area } = decoded;
+    // Asumimos que 'authData' devuelve { userId, roles, area }
+    const { roles } = authData;
+    console.log(`[ListarIncidencias] Rol: ${roles}`);
 
-    // Scan paginado (trae todo, más de 1MB si aplica)
-    const incidencias: any[] = [];
-    let ExclusiveStartKey: Record<string, any> | undefined = undefined;
+    // ----- 2. Paginación y Lógica de Rol -----
+    const body = JSON.parse(event.body || "{}");
+    const limit = body.limit || 20;
+    const cursor = body.cursor; // El 'LastEvaluatedKey' de la página anterior
 
-    do {
-      const page = await dynamo.send(
-        new ScanCommand({
-          TableName: tableName,
-          ExclusiveStartKey
-        })
-      );
-      if (page.Items) incidencias.push(...page.Items);
-      ExclusiveStartKey = page.LastEvaluatedKey as any;
-    } while (ExclusiveStartKey);
+    let queryParams: any = {
+      TableName: INCIDENTS_TABLE,
+      Limit: limit,
+      ExclusiveStartKey: cursor || undefined
+    };
 
-    // Filtrar según rol
-    let incidenciasFiltradas = incidencias;
-    if (rol === "autoridad" && area) {
-      incidenciasFiltradas = incidencias.filter(inc => inc.AsignadoA === area);
+    // ----- AQUÍ ESTÁ LA NUEVA LÓGICA -----
+    if (roles === "estudiante" || roles === "admin") {
+      // ROL ESTUDIANTE O ADMIN: Ven el foro, ordenado por fecha
+      console.log(`[ListarIncidencias] Consultando como ESTUDIANTE/ADMIN (foro cronológico)`);
+
+      queryParams.IndexName = "tipo-fecha-index";
+      queryParams.KeyConditionExpression = "tipo = :t";
+      queryParams.ExpressionAttributeValues = { ":t": "incidente" };
+      queryParams.ScanIndexForward = false; // Ordena por createdAt (descendente, lo más nuevo primero)
+
+    } else {
+      // ROL AUTORIDAD: Ve su cola de trabajo, ordenada por prioridad
+      console.log(`[ListarIncidencias] Consultando como AUTORIDAD para el área: ${roles}`);
+
+      queryParams.IndexName = "asignadoA-prioridad-index";
+      queryParams.KeyConditionExpression = "asignadoA = :a";
+      queryParams.ExpressionAttributeValues = { ":a": roles };
+      queryParams.ScanIndexForward = true; // Ordena por IndexPrioridad (ascendente, 1 es más alto)
     }
-    // Si es estudiante o admin, mostrar todas (no filtrar)
+    // ------------------------------------
 
-    // Enviar respuesta SOLO al cliente que la pidió
+    const page = await dynamo.send(new QueryCommand(queryParams));
+
+    const incidencias = page.Items || [];
+    const nextCursor = page.LastEvaluatedKey;
+
+    console.log(`[ListarIncidencias] ${incidencias.length} incidentes encontrados.`);
+
+    // ----- 3. Respuesta al Cliente -----
     await wsClient.postToConnection({
       ConnectionId: connectionId,
       Data: JSON.stringify({
         action: "listarIncidenciasResponse",
-        incidencias: incidenciasFiltradas
+        incidencias: incidencias, // El filtrado ya se hizo en la Query de DynamoDB
+        nextCursor: nextCursor || null
       })
     });
 
-    return { statusCode: 200 };
+    return { statusCode: 200, body: JSON.stringify({ message: "Incidencias listadas", incidencias }) };
 
   } catch (err: any) {
-    console.error("Error:", err);
-
-    // Intentar enviar error al cliente
-    try {
-      const wsClient = new ApiGatewayManagementApi({
-        endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`
-      });
-
-      await wsClient.postToConnection({
-        ConnectionId: event.requestContext.connectionId,
-        Data: JSON.stringify({
-          action: "error",
-          message: "Error al listar incidencias"
-        })
-      });
-
-    } catch (e) {
-      console.error("No se pudo enviar error al cliente:", e);
-    }
-
-    return { statusCode: 500 };
+    console.error("[ListarIncidencias] Error:", err);
+    return await sendWsError("Error al listar incidencias", 500);
   }
 };
